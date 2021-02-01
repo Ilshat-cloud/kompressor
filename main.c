@@ -113,7 +113,7 @@ void Flash(void *argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 //--------my global variables----------//
-uint16_t EncoderVal,power=0,voltage,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c;
+uint16_t EncoderVal,power=0,voltage,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax;
 int16_t Flow_current=0,Flow_nominal=0;
 uint8_t P,strat_kompressor,start_solenoid,error,P_max,P_min,P_HH,P_LL,Current_diference,T1,T2,T1_max,T2_max,P_ini,cosFI,
 current,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error=0,flag=0,iter=0;
@@ -807,7 +807,7 @@ void main_func(void *argument)
           if (current_a<((current_b+current_c-Current_diference)/2)){error=11;}
           if (current_b>((current_a+current_c+Current_diference)/2)){error=12;} 
           if (current_b<((current_a+current_c-Current_diference)/2)){error=13;} 
-          if (current_c>((current_a+current_b+Current_diference)/2){error=14;} 
+          if (current_c>((current_a+current_b+Current_diference)/2)){error=14;} 
           if (current_c<((current_a+current_b-Current_diference)/2)){error=15;} 
         }
       }else if (phase_a_work)
@@ -861,6 +861,7 @@ void main_func(void *argument)
             start_time++;
             worktime++;
             time_10s++;  
+            
             if (start_time>5)
               {
                 if ((power_nom>power/100)&&power_nom){error=17;}  //wrong load
@@ -897,8 +898,10 @@ void main_func(void *argument)
            furst_run=0;
            Flow_nominal=((P*Reciver_capacyty/P_ini)-Reciver_capacyty)*(start_time-3)/60;
            Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
+           Time_Pmin_Pmax_old=start_time;
           }
         P_time_old=0;
+        Time_Pmin_Pmax=start_time;
         start_time=0;
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
@@ -992,35 +995,36 @@ void Screen(void *argument)
 		sprintf(R,"%04d",Flow_nominal);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("L/min",Font_7x10,White);
-		ssd1306_Draw_dot_colum_line(0,10);
+		//ssd1306_Draw_dot_colum_line(0,8);////////////////////////
 		ssd1306_SetCursor(0,11);
 		ssd1306_WriteString("Ia:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",current_a/200,'.',(current_a/20)%10);
+		sprintf(R,"%02d%c%01d",current_a/200,'.',(current_a/20)%10);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("A  T1:",Font_7x10,White);
 		sprintf(R,"%03d",T1);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("C",Font_7x10,White);
-		ssd1306_WriteString(0x5F,Font_7x10,White);
-		ssd1306_Draw_dot_colum_line(0,21);
+		ssd1306_WriteChar(0x7F,Font_7x10,White);
+                //ssd1306_Draw_dot_colum_line(0,8);///////////////////////////////////////////////////////////
+		//ssd1306_Draw_dot_colum_line(0,21);
 		ssd1306_SetCursor(0,22);
 		ssd1306_WriteString("Ib:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",current_b/200,'.',(current_b/20)%10);
+		sprintf(R,"%02d%c%01d",current_b/200,'.',(current_b/20)%10);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("A  T2:",Font_7x10,White);
 		sprintf(R,"%03d",T2);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("C",Font_7x10,White);
-		ssd1306_WriteString(0x5F,Font_7x10,White);
-		ssd1306_Draw_dot_colum_line(0,32);
+		ssd1306_WriteChar(0x7F,Font_7x10,White);
+		//ssd1306_Draw_dot_colum_line(0,32);
 		ssd1306_SetCursor(0,33);
 		ssd1306_WriteString("Ic:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",current_c/200,'.',(current_c/20)%10);
+		sprintf(R,"%02d%c%01d",current_c/200,'.',(current_c/20)%10);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("A Work",Font_7x10,White);
-		sprintf(R,"%04d %c",worktime,'h');
+		sprintf(R,"%04d%c",worktime,'h');
 		ssd1306_WriteString(R,Font_7x10,White);
-		ssd1306_Draw_dot_colum_line(0,43);
+		//ssd1306_Draw_dot_colum_line(0,43);
 		ssd1306_SetCursor(0,44);
 		ssd1306_WriteString("Ton  ",Font_7x10,White);
 		sprintf(R,"%04d",Time_Pmin_Pmax);
@@ -1029,14 +1033,14 @@ void Screen(void *argument)
 		sprintf(R,"%03d",voltage);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString(" V",Font_7x10,White);
-		ssd1306_SetCursor(0,54);
+		ssd1306_SetCursor(0,53);
 		ssd1306_WriteString("TNom ",Font_7x10,White);
 		sprintf(R,"%04d",Time_Pmin_Pmax_old);
 		ssd1306_WriteString(R,Font_7x10,White);
 		
         if (error!=0)
           {
-            flag=5;
+            flag=0;//5
             break;
           }
         if (button>1000) 
@@ -1053,7 +1057,7 @@ void Screen(void *argument)
 		ssd1306_SetCursor(0,7);
 		ssd1306_WriteString("Pressure:",Font_7x10,White);
 		ssd1306_SetCursor(63,0);
-		sprintf(R,"%02d %c %01d",P/10,'.',P%10);
+		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
 		ssd1306_WriteString(R,Font_11x18,White);
 		ssd1306_SetCursor(107,7);
 		ssd1306_WriteString("kg",Font_7x10,White);
@@ -1069,7 +1073,7 @@ void Screen(void *argument)
 		ssd1306_SetCursor(0,52);
 		ssd1306_WriteString("Power:",Font_7x10,White);
 		ssd1306_SetCursor(42,45);
-		sprintf(R,"%02d %c %01d",power/1000,'.',(power/100)%10);
+		sprintf(R,"%02d%c%01d",power/1000,'.',(power/100)%10);
 		ssd1306_WriteString(R,Font_11x18,White);
 		ssd1306_SetCursor(90,52);
 		ssd1306_WriteString("kW",Font_7x10,White);
@@ -1109,7 +1113,7 @@ void Screen(void *argument)
         //------------------------------settings page1--------------------------------//
         ssd1306_SetCursor(0,0);
 		ssd1306_WriteString("Pmax:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",P_max/10,'.',P_max%10);
+		sprintf(R,"%02d%c%01d",P_max/10,'.',P_max%10);
 		if (choise==0)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
@@ -1121,7 +1125,7 @@ void Screen(void *argument)
 		
 		ssd1306_SetCursor(0,10);
 		ssd1306_WriteString("Pmin:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",P_min/10,'.',P_min%10);
+		sprintf(R,"%02d%c%01d",P_min/10,'.',P_min%10);
 		if (choise==1)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
@@ -1133,7 +1137,7 @@ void Screen(void *argument)
 		ssd1306_Draw_dot_colum_line(0,20);
 		ssd1306_SetCursor(0,21);
 		ssd1306_WriteString("P<LL:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",P_LL/10,'.',P_LL%10);
+		sprintf(R,"%02d%c%01d",P_LL/10,'.',P_LL%10);
 		if (choise==2)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
@@ -1145,7 +1149,7 @@ void Screen(void *argument)
 		ssd1306_Draw_dot_colum_line(0,31);
 		ssd1306_SetCursor(0,32);
 		ssd1306_WriteString("P>HH:",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",P_HH/10,'.',P_HH%10);
+		sprintf(R,"%02d%c%01d",P_HH/10,'.',P_HH%10);
 		if (choise==3)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
@@ -1165,7 +1169,7 @@ void Screen(void *argument)
 				ssd1306_WriteString(R,Font_7x10,White);
 			}	
 		ssd1306_WriteString("c  dPErr",Font_7x10,White);
-		sprintf(R,"%02d %c %01d",dP_error/10,'.',dP_error%10);
+		sprintf(R,"%02d%c%01d",dP_error/10,'.',dP_error%10);
 		if (choise==5)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
@@ -1183,7 +1187,7 @@ void Screen(void *argument)
 			}else{
 				ssd1306_WriteString(R,Font_7x10,White);
 			}	
-		ssd1306_WriteString("lit,Font_7x10,White);
+		ssd1306_WriteString("lit",Font_7x10,White);
 		
 		switch (choise)
 			{
@@ -1250,25 +1254,25 @@ void Screen(void *argument)
 		if (choise==0)
 		{
 			switch(phase_control){
-				case(0)
+                          case(0):
 					ssd1306_WriteString("---",Font_7x10,CurTime.Seconds%2);
 				break;
-				case(1)
+				case(1):
 					ssd1306_WriteString("ABC",Font_7x10,CurTime.Seconds%2);
 				break;
-				case(2)
+				case(2):
 					ssd1306_WriteString("CBA",Font_7x10,CurTime.Seconds%2);
 				break;
 			}
 		}else{
 			switch(phase_control){
-				case(0)
+                          case(0):
 					ssd1306_WriteString("---",Font_7x10,White);
 				break;
-				case(1)
+				case(1):
 					ssd1306_WriteString("ABC",Font_7x10,White);
 				break;
-				case(2)
+				case(2):
 					ssd1306_WriteString("CBA",Font_7x10,White);
 				break;
 			}
@@ -1278,10 +1282,10 @@ void Screen(void *argument)
 		ssd1306_WriteString(" CosFI",Font_7x10,White);
 		if (choise==1)
 			{
-				sprintf(R,"%02d %c %01d",cossFI/10,'.',cossFI%10);
+				sprintf(R,"%02d%c%01d",cosFI/10,'.',cosFI%10);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%02d %c %01d",cossFI/10,'.',cossFI%10);
+				sprintf(R,"%02d%c%01d",cosFI/10,'.',cosFI%10);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}
 		
@@ -1291,10 +1295,10 @@ void Screen(void *argument)
 		ssd1306_WriteString("dI:",Font_7x10,White);
 		if (choise==2)
 			{
-				sprintf(R,"%01d %c %02d",current_diference/100,'.',current_diference%100);
+				sprintf(R,"%01d%c%02d",Current_diference/100,'.',Current_diference%100);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%01d %c %02d",current_diference/100,'.',current_diference%100);
+				sprintf(R,"%01d%c%02d",Current_diference/100,'.',Current_diference%100);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}
 		
@@ -1315,20 +1319,20 @@ void Screen(void *argument)
 		ssd1306_WriteString("IK3:",Font_7x10,White);
 		if (choise==4)
 			{
-				sprintf(R,"%02d %c %01d",short_circut_current/10,'.',short_circut_current%10);
+				sprintf(R,"%02d%c%01d",short_circut_current/10,'.',short_circut_current%10);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%02d %c %01d",short_circut_current/10,'.',short_circut_current%10);
+				sprintf(R,"%02d%c%01d",short_circut_current/10,'.',short_circut_current%10);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}			
 
 		ssd1306_WriteString("A  T1:",Font_7x10,White);
 		if (choise==5)
 			{
-				sprintf(R,"%03d ",T1_max);
+				sprintf(R,"%03d",T1_max);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%03d ",T1_max);
+				sprintf(R,"%03d",T1_max);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}				
 
@@ -1338,10 +1342,10 @@ void Screen(void *argument)
 		ssd1306_WriteString("PowerNom:",Font_7x10,White);
 		if (choise==6)
 			{
-				sprintf(R,"%02d %c %01d",power_nom/10,'.',power_nom%10);
+				sprintf(R,"%02d%c%01d",power_nom/10,'.',power_nom%10);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%02d %c %01d",power_nom/10,'.',power_nom%10);
+				sprintf(R,"%02d%c%01d",power_nom/10,'.',power_nom%10);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}			
 		ssd1306_WriteString("kW",Font_7x10,White);
@@ -1372,10 +1376,10 @@ void Screen(void *argument)
 				phase_control=EncoderVal%3;
 				break;
 			  case 1:
-				cossFI=EncoderVal%101;
+				cosFI=EncoderVal%101;
 				break;
 			  case 2:
-				current_diference=EncoderVal%256;
+				Current_diference=EncoderVal%256;
 				break;
 			  case 3:
 				T2_max=EncoderVal%256;
@@ -1409,10 +1413,10 @@ void Screen(void *argument)
                   __HAL_TIM_SET_COUNTER(&htim3,phase_control);
                   break;
                 case 1:
-                  __HAL_TIM_SET_COUNTER(&htim3,cossFI);
+                  __HAL_TIM_SET_COUNTER(&htim3,cosFI);
                   break;
                 case 2:
-                  __HAL_TIM_SET_COUNTER(&htim3,current_diference);
+                  __HAL_TIM_SET_COUNTER(&htim3,Current_diference);
                   break;
                 case 3:
                   __HAL_TIM_SET_COUNTER(&htim3,T2_max);
@@ -1438,7 +1442,7 @@ void Screen(void *argument)
 		ssd1306_SetCursor(0,7);
 		ssd1306_WriteString("Pressure:",Font_7x10,White);
 		ssd1306_SetCursor(63,0);
-		sprintf(R,"%02d %c %01d",P/10,'.',P%10);
+		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
 		ssd1306_WriteString(R,Font_11x18,White);
 		ssd1306_SetCursor(107,7);
 		ssd1306_WriteString("kg",Font_7x10,White);
@@ -1449,7 +1453,7 @@ void Screen(void *argument)
 			case 1:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("    Wrong phase",Font_7x10,White);  //18 max
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("    rotation",Font_7x10,White);  //18 max
 			break;
 			case 2:
@@ -1464,103 +1468,103 @@ void Screen(void *argument)
 			case 4:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("depressurization",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("dP>dP_max for 6sec",Font_7x10,White);  //18 max			
 			break;
 			case 5:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("wrong sensor",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("P<P_LL",Font_7x10,White);  //18 max							
 			break;
 			case 6:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("wrong sensor",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("P>P_HH",Font_7x10,White);  //18 max			
 			break;
 			case 7:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase A",Font_7x10,White);  //18 max		
 			break;
 			case 8:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase B",Font_7x10,White);  //18 max				
 			break;
 			case 9:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase C",Font_7x10,White);  //18 max				
 			break;
 			case 10:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase A>BC",Font_7x10,White);  //18 max					
 			break;
 			case 11:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase A<BC",Font_7x10,White);  //18 max			
 			break;
 			case 12:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase B>CA",Font_7x10,White);  //18 max			
 			break;
 			case 13:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase B<CA",Font_7x10,White);  //18 max				
 			break;
 			case 14:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase C>AB",Font_7x10,White);  //18 max				
 			break;
 			case 15:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Phase C>AB",Font_7x10,White);  //18 max				
 			break;
 			case 16:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Pressure NOT",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("change",Font_7x10,White);  //18 max			
 			break;
 			case 17:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Dry running",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("Power<PowerNominal",Font_7x10,White);  //18 max				
 			break;
 			case 18:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Phase A",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max				
 			break;
 			case 19:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Phase B",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max					
 			break;
 			case 20:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Phase C",Font_7x10,White);  //18 max		
-			ssd1306_SetCursor(0,35);
+			ssd1306_SetCursor(0,36);
 			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max					
 			break;
 			

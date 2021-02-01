@@ -10,8 +10,7 @@ static void ssd1306_WriteCommand(uint8_t command)
 {
   HAL_I2C_Mem_Write(&hi2c1, SSD1306_I2C_ADDR, 0x00,1,&command,1,5);
 }
-uint8_t j;
-uint8_t i;
+
 
 uint8_t dota[128]={
 0x00,0x00,0x00,0x00,
@@ -101,6 +100,8 @@ uint8_t ssd1306_Init(void) {
 
 void ssd1306_Fill(SSD1306_COLOR color) 
 {
+ 
+        uint16_t i;
 	/* Set memory */
 	for (i=0; i<sizeof(SSD1306_Buffer);i++)
         {
@@ -111,6 +112,7 @@ void ssd1306_Fill(SSD1306_COLOR color)
 
 void ssd1306_UpdateScreen(void) 
 {
+  uint8_t i;
         for (i=0; i<8; i++)
         {
           ssd1306_WriteCommand(0xB0+i);
@@ -155,10 +157,10 @@ void ssd1306_Draw_dot_colum_line(uint8_t x, uint8_t y) {
 		/* Error */
 		return;
 	}
-
-	for (i=x; i<(x+((y / 8) * SSD1306_WIDTH)); i++)
+        uint16_t i;
+	for (i=(x+(y / 8) * SSD1306_WIDTH); i<(128-x+((y / 8) * SSD1306_WIDTH)); i++)
 		{
-			SSD1306_Buffer[i+((y / 8) * SSD1306_WIDTH)] |= 0xCC;
+			SSD1306_Buffer[i+((y / 8) * SSD1306_WIDTH)] |= 1 << (y % 8);;
 		}
 
 	
@@ -205,8 +207,8 @@ char ssd1306_WriteChar(char ch, FontDef Font, SSD1306_COLOR color)
 
 //------------------------startScreen-------------------
 void startScreen() {
-  
-
+  uint8_t i;
+        uint8_t j;
 	for (i = 0; i < 128; i++)
 	{       
                 uint8_t i2=i/4;
