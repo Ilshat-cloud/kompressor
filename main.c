@@ -864,7 +864,7 @@ void main_func(void *argument)
             
             if (start_time>5)
               {
-                if ((power_nom>power/100)&&power_nom){error=17;}  //wrong load
+                if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
                 if (P<(P_old+5)&&P>(P_old-5)){
                   P_time_old++;
                   if ((P_time_old>dP_time)&&dP_time){error=16;}  //pressure not change
@@ -1342,10 +1342,10 @@ void Screen(void *argument)
 		ssd1306_WriteString("PowerNom:",Font_7x10,White);
 		if (choise==6)
 			{
-				sprintf(R,"%02d%c%01d",power_nom/10,'.',power_nom%10);
+				sprintf(R,"%01d%c%02d",power_nom/250,'.',power_nom*4%100);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%02d%c%01d",power_nom/10,'.',power_nom%10);
+				sprintf(R,"%01d%c%02d",power_nom/250,'.',power_nom*4%100);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}			
 		ssd1306_WriteString("kW",Font_7x10,White);
