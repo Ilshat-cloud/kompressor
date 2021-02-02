@@ -1342,10 +1342,10 @@ void Screen(void *argument)
 		ssd1306_WriteString("PowerNom:",Font_7x10,White);
 		if (choise==6)
 			{
-				sprintf(R,"%01d%c%02d",power_nom/250,'.',power_nom*4%100);
+				sprintf(R,"%01d%c%02d",power_nom/25,'.',power_nom*4%100);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%01d%c%02d",power_nom/250,'.',power_nom*4%100);
+				sprintf(R,"%01d%c%02d",power_nom/25,'.',power_nom*4%100);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}			
 		ssd1306_WriteString("kW",Font_7x10,White);
