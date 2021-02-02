@@ -107,7 +107,7 @@ void Screen(void *argument);
 void Flash(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void Flash_save(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -161,7 +161,25 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+  
+  //-------------------------Flash---------------------//
+  if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
+     {
+          MAX_EU=flash_read(User_Page_Adress[0]);
+          MIN_EU=flash_read(User_Page_Adress[0])>>16;
+          direct=flash_read(User_Page_Adress[1]);
+          sensor=flash_read(User_Page_Adress[1])>>8;
+          brightness=flash_read(User_Page_Adress[1])>>16;
+          hysteresys=flash_read(User_Page_Adress[2]);
+          P1=flash_read(User_Page_Adress[2])>>8;  
+          I1=flash_read(User_Page_Adress[2])>>16;
+          D1=flash_read(User_Page_Adress[2])>>24; 
+          autostart=flash_read(User_Page_Adress[3]);
+          point_num=flash_read(User_Page_Adress[3])>>8;  
 
+     }
+
+    //====================================================//
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -727,6 +745,31 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+//---------------------------FLASH--------------------//
+void Flash_save(void)
+{
+	if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
+        {
+               MAX_EU=flash_read(User_Page_Adress[0]);
+               MIN_EU=flash_read(User_Page_Adress[0])>>16;
+               direct=flash_read(User_Page_Adress[1]);
+               sensor=flash_read(User_Page_Adress[1])>>8;
+               brightness=flash_read(User_Page_Adress[1])>>16;
+               hysteresys=flash_read(User_Page_Adress[2]);
+               P1=flash_read(User_Page_Adress[2])>>8;  
+               I1=flash_read(User_Page_Adress[2])>>16;
+               D1=flash_read(User_Page_Adress[2])>>24; 
+               autostart=flash_read(User_Page_Adress[3]);
+               point_num=flash_read(User_Page_Adress[3])>>8;  
+
+        }
+
+              //====================================================//
+	
+	
+}
+
+
 //---------------------------exti--------------------//
 
 void EXTI0_IRQHandler(void)
@@ -995,7 +1038,6 @@ void Screen(void *argument)
 		sprintf(R,"%04d",Flow_nominal);
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("L/min",Font_7x10,White);
-		//ssd1306_Draw_dot_colum_line(0,8);////////////////////////
 		ssd1306_SetCursor(0,11);
 		ssd1306_WriteString("Ia:",Font_7x10,White);
 		sprintf(R,"%02d%c%01d",current_a/200,'.',(current_a/20)%10);
@@ -1005,8 +1047,6 @@ void Screen(void *argument)
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("C",Font_7x10,White);
 		ssd1306_WriteChar(0x7F,Font_7x10,White);
-                //ssd1306_Draw_dot_colum_line(0,8);///////////////////////////////////////////////////////////
-		//ssd1306_Draw_dot_colum_line(0,21);
 		ssd1306_SetCursor(0,22);
 		ssd1306_WriteString("Ib:",Font_7x10,White);
 		sprintf(R,"%02d%c%01d",current_b/200,'.',(current_b/20)%10);
@@ -1016,7 +1056,6 @@ void Screen(void *argument)
 		ssd1306_WriteString(R,Font_7x10,White);
 		ssd1306_WriteString("C",Font_7x10,White);
 		ssd1306_WriteChar(0x7F,Font_7x10,White);
-		//ssd1306_Draw_dot_colum_line(0,32);
 		ssd1306_SetCursor(0,33);
 		ssd1306_WriteString("Ic:",Font_7x10,White);
 		sprintf(R,"%02d%c%01d",current_c/200,'.',(current_c/20)%10);
@@ -1024,8 +1063,7 @@ void Screen(void *argument)
 		ssd1306_WriteString("A Work",Font_7x10,White);
 		sprintf(R,"%04d%c",worktime,'h');
 		ssd1306_WriteString(R,Font_7x10,White);
-		//ssd1306_Draw_dot_colum_line(0,43);
-		ssd1306_SetCursor(0,44);
+		ssd1306_SetCursor(0,43);
 		ssd1306_WriteString("Ton  ",Font_7x10,White);
 		sprintf(R,"%04d",Time_Pmin_Pmax);
 		ssd1306_WriteString(R,Font_7x10,White);
@@ -1178,7 +1216,7 @@ void Screen(void *argument)
 			}	
 		
 		ssd1306_Draw_dot_colum_line(0,53);
-		ssd1306_SetCursor(0,54);
+		ssd1306_SetCursor(0,53);
 		ssd1306_WriteString("ReciverCap: ",Font_7x10,White);
 		sprintf(R,"%03d",Reciver_capacyty);
 		if (choise==6)

@@ -158,7 +158,7 @@ void ssd1306_Draw_dot_colum_line(uint8_t x, uint8_t y) {
 		return;
 	}
         uint16_t i;
-	for (i=(x+(y / 8) * SSD1306_WIDTH); i<(128-x+((y / 8) * SSD1306_WIDTH)); i++)
+	for (i=(x+(y / 8) * SSD1306_WIDTH); i<(127-x+((y / 8) * SSD1306_WIDTH)); i++)
 		{
 			SSD1306_Buffer[i+((y / 8) * SSD1306_WIDTH)] |= 1 << (y % 8);;
 		}
