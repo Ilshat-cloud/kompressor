@@ -23,9 +23,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "wh1602.h"
-#include "MAX31855.h"
-
+#include "sh1106.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,10 +66,10 @@ const osThreadAttr_t main_task_attributes = {
   .priority = (osPriority_t) osPriorityLow5,
   .stack_size = 256 * 4
 };
-/* Definitions for PID_task */
-osThreadId_t PID_taskHandle;
-const osThreadAttr_t PID_task_attributes = {
-  .name = "PID_task",
+/* Definitions for Flow_meter */
+osThreadId_t Flow_meterHandle;
+const osThreadAttr_t Flow_meter_attributes = {
+  .name = "Flow_meter",
   .priority = (osPriority_t) osPriorityLow6,
   .stack_size = 128 * 4
 };
@@ -91,28 +89,6 @@ const osThreadAttr_t Flash_task_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-//--------my global variables----------//
-MAX31855_Sensor termocoupe;
-void Breizinheim(void);
-uint16_t EncoderVal,brightness=50,target1,worktime=0;
-uint8_t i,P1=4,I1=2,D1=1,X1,x_1=0,dead_zone1=0,sensor=0,iter,y1,direct=0,hysteresys=2,start=0,autostart=1,flag=0, curPoint=0,mistake=0,flash_i;
-int16_t errorsold1[256];
-int16_t  Error1,Temp_ADC=0,MAX_EU=1000,MIN_EU=0,Temp_start=0;
-int32_t regD1=0,regP1=0,regI1=0,PID1;
-uint32_t button;
-FLASH_EraseInitTypeDef Erase;
-int16_t t_cur[2]={0,0};
-typedef struct
-{
-  uint8_t Sec;
-  uint8_t Minuts;  
-  uint16_t  target;
-} points;
-
-points point[20];
-uint8_t point_num=0;
-//--------------------------------------//
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,25 +96,33 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_SPI2_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_SPI2_Init(void);
 void main_func(void *argument);
-void PID(void *argument);
+void Flow(void *argument);
 void Screen(void *argument);
 void Flash(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void Flash_save(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+//--------my global variables----------//
+uint16_t EncoderVal,power=0,voltage,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
+int16_t Flow_current=0,Flow_nominal=0;
+uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1,T2,T1_max,T2_max,P_ini=0,cosFI,
+current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0;
+RTC_TimeTypeDef CurTime = {0};
+uint32_t button=0,worktime,flash_ret;
+FLASH_EraseInitTypeDef Erase;
+//========================================//
 /* USER CODE END 0 */
 
 /**
@@ -148,30 +132,6 @@ void Flash(void *argument);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-    //-------------------------Flash---------------------//
-
-    if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
-     {
-          MAX_EU=flash_read(User_Page_Adress[0]);
-          MIN_EU=flash_read(User_Page_Adress[0])>>16;
-          direct=flash_read(User_Page_Adress[1]);
-          sensor=flash_read(User_Page_Adress[1])>>8;
-          brightness=flash_read(User_Page_Adress[1])>>16;
-          hysteresys=flash_read(User_Page_Adress[2]);
-          P1=flash_read(User_Page_Adress[2])>>8;  
-          I1=flash_read(User_Page_Adress[2])>>16;
-          D1=flash_read(User_Page_Adress[2])>>24; 
-          autostart=flash_read(User_Page_Adress[3]);
-          point_num=flash_read(User_Page_Adress[3])>>8;  
-          for (flash_i=0;flash_i<20;flash_i++)
-            {
-              point[flash_i].Minuts=flash_read(User_Page_Adress[flash_i+4]);
-              point[flash_i].Sec=flash_read(User_Page_Adress[flash_i+4])>>8;
-              point[flash_i].target=flash_read(User_Page_Adress[flash_i+4])>>16;  
-            }
-     }
-
-    //====================================================//
 
   /* USER CODE END 1 */
 
@@ -195,15 +155,39 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
-  MX_I2C1_Init();
   MX_IWDG_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
-  MX_SPI2_Init();
   MX_RTC_Init();
   MX_TIM4_Init();
+  MX_I2C1_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
+  
+  //-------------------------Flash---------------------//
+  if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
+     {
+          Reciver_capacyty=flash_read(User_Page_Adress[0]);
+          Time_Pmin_Pmax_old=flash_read(User_Page_Adress[0])>>16;
+          Flow_nominal=flash_read(User_Page_Adress[1]);
+          P_max=flash_read(User_Page_Adress[1])>>16;
+          P_min=flash_read(User_Page_Adress[1])>>24;
+          P_HH=flash_read(User_Page_Adress[2]);
+          P_LL=flash_read(User_Page_Adress[2])>>8;  
+          Current_diference=flash_read(User_Page_Adress[2])>>16;
+          T1_max=flash_read(User_Page_Adress[2])>>24; 
+          T2_max=flash_read(User_Page_Adress[3]);
+          cosFI=flash_read(User_Page_Adress[3])>>8;  
+          phase_control=flash_read(User_Page_Adress[3])>>16; 
+          short_circut_current=flash_read(User_Page_Adress[3])>>24; 
+          dP_time=flash_read(User_Page_Adress[4]);
+          power_nom=flash_read(User_Page_Adress[4])>>8;
+          dP_error=flash_read(User_Page_Adress[4])>>16;
+          worktime=flash_read(User_Page_Adress[5]);
+    
+     }
 
+    //====================================================//
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -229,8 +213,8 @@ int main(void)
   /* creation of main_task */
   main_taskHandle = osThreadNew(main_func, NULL, &main_task_attributes);
 
-  /* creation of PID_task */
-  PID_taskHandle = osThreadNew(PID, NULL, &PID_task_attributes);
+  /* creation of Flow_meter */
+  Flow_meterHandle = osThreadNew(Flow, NULL, &Flow_meter_attributes);
 
   /* creation of Screen_task */
   Screen_taskHandle = osThreadNew(Screen, NULL, &Screen_task_attributes);
@@ -329,7 +313,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 7;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -347,6 +331,46 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_3;
+  sConfig.Rank = ADC_REGULAR_RANK_4;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = ADC_REGULAR_RANK_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Rank = ADC_REGULAR_RANK_6;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_6;
+  sConfig.Rank = ADC_REGULAR_RANK_7;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -375,7 +399,7 @@ static void MX_I2C1_Init(void)
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.OwnAddress1 = 82;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c1.Init.OwnAddress2 = 0;
@@ -494,12 +518,12 @@ static void MX_SPI2_Init(void)
   /* SPI2 parameter configuration*/
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
-  hspi2.Init.Direction = SPI_DIRECTION_2LINES_RXONLY;
-  hspi2.Init.DataSize = SPI_DATASIZE_16BIT;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -526,19 +550,24 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 3;
+  htim2.Init.Prescaler = 719;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1000;
+  htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -548,22 +577,9 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -586,20 +602,20 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 1;
+  htim3.Init.Prescaler = 3;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 2048;
+  htim3.Init.Period = 2047;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 15;
+  sConfig.IC1Filter = 2;
   sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 15;
+  sConfig.IC2Filter = 2;
   if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -636,7 +652,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 65535;
+  htim4.Init.Prescaler = 65534;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 50000;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -719,42 +735,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|SPI2_Pin|BREIZ_OUT_Pin|RELAY_HIST_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, SPI2_CS_Pin|Start_solenoid_Pin|START_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
-                          |GPIO_PIN_12, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : Btn_Pin */
-  GPIO_InitStruct.Pin = Btn_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(Btn_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PB12 SPI2_Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_12|SPI2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA8 PA9 PA10 PA11
-                           PA12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
-                          |GPIO_PIN_12;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : BREIZ_IN_EXTI_Pin */
-  GPIO_InitStruct.Pin = BREIZ_IN_EXTI_Pin;
+  /*Configure GPIO pins : Phase_A_Pin Phase_B_Pin Phase_C_Pin */
+  GPIO_InitStruct.Pin = Phase_A_Pin|Phase_B_Pin|Phase_C_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BREIZ_IN_EXTI_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BREIZ_OUT_Pin RELAY_HIST_Pin */
-  GPIO_InitStruct.Pin = BREIZ_OUT_Pin|RELAY_HIST_Pin;
+  /*Configure GPIO pins : SPI2_CS_Pin Start_solenoid_Pin START_Pin */
+  GPIO_InitStruct.Pin = SPI2_CS_Pin|Start_solenoid_Pin|START_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -763,32 +753,58 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-//------------------------OUT-------------------------
-void Breizinheim(void) 
+//---------------------------FLASH--------------------//
+void Flash_save(void)
 {
-  i++;
-  uint8_t x;
-  x=i*x_1/100;
-    if (x==y1)
-    {   //off
-      HAL_GPIO_WritePin(BREIZ_OUT_GPIO_Port,BREIZ_OUT_Pin, GPIO_PIN_RESET);
-    }
-    else 
-    {   //on
-      HAL_GPIO_WritePin(BREIZ_OUT_GPIO_Port,BREIZ_OUT_Pin, GPIO_PIN_SET);
-    }
-  y1=x;
-  if (i>=100)
-  {
-    i=0; y1=0; x_1=X1;
-  }
+	if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
+        {
+          HAL_FLASH_Unlock();
+          Erase.TypeErase=FLASH_TYPEERASE_PAGES;
+          Erase.PageAddress=User_Page_Adress[0];
+          Erase.NbPages=1;
+          HAL_FLASHEx_Erase(&Erase,&flash_ret);
+          if (flash_ret==0xFFFFFFFF)
+          {
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[0],(Reciver_capacyty&0x0000FFFF)|((Time_Pmin_Pmax_old<<16)&0xFFFF0000));
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[1],(Flow_nominal&0x0000FFFF)|((P_max<<16)&0x00FF0000)|((P_min<<24)&0xFF000000));
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[2],(P_HH&0x000000FF)|((P_LL<<8)&0x0000FF00)|((Current_diference<<16)&0x00FF0000)|((T1_max<<24)&0xFF000000));
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[3],(T2_max&0x000000FF)|((cosFI<<8)&0x0000FF00)|((phase_control<<16)&0x00FF0000)|((short_circut_current<<24)&0xFF000000));
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[4],(dP_time&0x000000FF)|((power_nom<<8)&0x0000FF00)|((dP_error<<16)&0x00FF0000)); 
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[5],worktime);   
+          
+          HAL_FLASH_Lock();
+          flash_ret=0;
+          }     
+        }
+
+     //====================================================//
+	
+	
 }
-void EXTI3_IRQHandler(void)
+
+
+//---------------------------exti--------------------//
+
+void EXTI0_IRQHandler(void)
 {
-    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_3);
-    Breizinheim();
+    __HAL_TIM_SET_COUNTER(&htim2,0);
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+    phase_a_work=1;
 }
-//---------------------------------------------------------------//
+void EXTI1_IRQHandler(void)
+{
+    Time_b=TIM2->CNT;
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
+    phase_b_work=1;
+}
+void EXTI2_IRQHandler(void)
+{
+    Time_c=TIM2->CNT;
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
+    phase_c_work=1;
+}
+
+//====================================================//
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_main_func */
@@ -802,262 +818,196 @@ void main_func(void *argument)
 {
   /* USER CODE BEGIN 5 */
   
-  volatile uint16_t dma[2];
-
-  uint8_t SPI_Buf[4],last_sec=0;
-  uint16_t ramp_time;
+  
+  volatile uint16_t dma[7];
+  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini,time_10s=0,P_old_10s=0,strobe=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
-  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_1);  //pid
-  HAL_TIM_PWM_Start(&htim2,TIM_CHANNEL_3);  //led
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
-  //HAL_TIM_IC_Start(&htim4,TIM_CHANNEL_2);
-  //HAL_TIM_IC_Start(&htim4,TIM_CHANNEL_1);
+  HAL_TIM_Base_Start(&htim2);
+  HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
+  osDelay(100);
   /* Infinite loop */
-  InitializeLCD();
-  ClearLCDScreen();
-  start=(autostart==1)?1:0;
-  flag=start;
-  RTC_TimeTypeDef CurTime = {0};
-  target1=point[0].target;  
-  __HAL_TIM_SET_COUNTER(&htim3,point[curPoint].target);
   for(;;)
   {
-    //-------------SPI ADC IDWG Encoder------------//
+    //-------------ADC IDWG Encoder------------//
     HAL_IWDG_Refresh(&hiwdg);
     HAL_RTC_GetTime(&hrtc, &CurTime, RTC_FORMAT_BIN);
-    switch (sensor)
-    {
-    case 1:
-      HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,2); 
-      osDelay(10);
-      t_cur[0]=dma[0];
-      t_cur[1]=dma[1];//linearize here
-      Temp_ADC=(Temp_ADC+t_cur[0])/2;
-      if ((Temp_ADC>MAX_EU)||(Temp_ADC<MIN_EU))
-      {
-        mistake=1;
-      }else{
-        mistake=0;
-      }
-    break;  
-    case 0:
-      HAL_GPIO_WritePin(SPI2_GPIO_Port,SPI2_Pin,GPIO_PIN_RESET);
-      if (HAL_SPI_Receive(&hspi2,SPI_Buf,4,200)==HAL_OK)
-      {
-        HAL_GPIO_WritePin(SPI2_GPIO_Port,SPI2_Pin,GPIO_PIN_SET);
-        termocoupe.Buf=SPI_Buf;
-        MAX31855_convert_buf(&termocoupe);
-        Temp_ADC=(int16_t)(Temp_ADC+termocoupe.t_termocoupe)/2;
-        if ((termocoupe.OC) ||(termocoupe.SCG)||(termocoupe.SCV)||(Temp_ADC>MAX_EU)||(Temp_ADC<MIN_EU))
-        {
-          mistake=1;
-        }else{
-          mistake=0;
-        }
-      }else{mistake=1;}
-      break;
-    case 2:
-      HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,2); 
-      osDelay(10);
-      t_cur[0]=dma[0];
-      t_cur[1]=dma[1];//linearize here
-      Temp_ADC=(Temp_ADC+ t_cur[0]+t_cur[1])/3;
-
-      if ((Temp_ADC>MAX_EU)||(Temp_ADC<MIN_EU))
-      {
-        mistake=1;
-      }else{
-        mistake=0;
-      }
-    break;
-    case 3:
-      HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,2); 
-      osDelay(10);
-      t_cur[0]=dma[0];
-      t_cur[1]=dma[1];//linearize here
-      if (t_cur[0]>=t_cur[1])
-      {
-        Temp_ADC=(Temp_ADC+ t_cur[0])/2;
-      }else{
-        Temp_ADC=(Temp_ADC+ t_cur[1])/2;
-      }
-
-      if ((Temp_ADC>MAX_EU)||(Temp_ADC<MIN_EU))
-      {
-        mistake=1;
-      }else{
-        mistake=0;
-      }
-    break;
-    case 4:
-      HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,2); 
-      osDelay(10);
-      t_cur[0]=dma[0];
-      t_cur[1]=dma[1];//linearize here
-      if (t_cur[0]<=t_cur[1])
-      {
-        Temp_ADC=(Temp_ADC+ t_cur[0])/2;
-      }else{
-        Temp_ADC=(Temp_ADC+ t_cur[1])/2;
-      }
-
-      if ((Temp_ADC>MAX_EU)||(Temp_ADC<MIN_EU))
-      {
-        mistake=1;
-      }else{
-        mistake=0;
-      }
-    break;
-    
-    }  
+    HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
-    TIM2->CCR3=brightness*10;
-    //----------------------------------------------//     
+    osDelay(10);
+    voltage=(voltage+dma[0]/8)/2;       //real_voltage 511v==4095==3v
+    T1=(T1+dma[1]/16)/2;
+    T2=(T2+dma[2]/16)/2;
+    P=(P+dma[3]/16)/2;                  //255==12at==3v
+    P_old_10s=(P_old_10s==0)?P:P_old_10s;
+    current_a=(current_a+dma[4])/2;
+    current_b=(current_b+dma[5])/2;
+    current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
+    //=========================================//
     
-   //button=TIM4->CCR2-TIM4->CCR1; 
-    
-    //-------------------------------startuem+hyst-----------------------//   
-    if (start)
+    //----------------one secound strobe-----------------//
+    if ((secound_old!=CurTime.Seconds)&&(!strobe))
     {
-      
-      if (mistake)
+      strobe=1;
+      secound_old=CurTime.Seconds;
+    }  
+    //=========================================// 
+    
+      //-------------------calculations power, phase quantity,difference between phase------------------------//
+      if(phase_a_work&&phase_b_work&&phase_c_work)
       {
-        TIM2->CCR1=(direct==0)?0:1000;
-        NVIC_DisableIRQ(EXTI3_IRQn);
-        HAL_GPIO_WritePin(BREIZ_OUT_GPIO_Port,BREIZ_OUT_Pin, GPIO_PIN_RESET);
-        HAL_GPIO_WritePin(RELAY_HIST_GPIO_Port,RELAY_HIST_Pin, GPIO_PIN_RESET);
-        
-      }else{
-
-        NVIC_EnableIRQ(EXTI3_IRQn);
-        TIM2->CCR1=PID1/10;
-        
-        if (Temp_ADC>=target1+hysteresys)
-        {
-          HAL_GPIO_WritePin(RELAY_HIST_GPIO_Port,RELAY_HIST_Pin, GPIO_PIN_RESET);
+        power=1.73*voltage*cosFI*(current_a+current_b+current_c)/(3*200*100);   //current*1000/5=current/200 A cosFI(0,5..1)=0.5==50, 1==100
+        if (Current_diference>0){
+          if (current_a>((current_b+current_c+Current_diference)/2)){error=10;}                //255=2.55 A*100 1==0,01A
+          if (current_a<((current_b+current_c-Current_diference)/2)){error=11;}
+          if (current_b>((current_a+current_c+Current_diference)/2)){error=12;} 
+          if (current_b<((current_a+current_c-Current_diference)/2)){error=13;} 
+          if (current_c>((current_a+current_b+Current_diference)/2)){error=14;} 
+          if (current_c<((current_a+current_b-Current_diference)/2)){error=15;} 
         }
-        else if (Temp_ADC<=target1-hysteresys)
+      }else if ((phase_a_work!=0)&&(phase_control==1)||(phase_control==2))
+      {
+        if (phase_b_work)
         {
-          HAL_GPIO_WritePin(RELAY_HIST_GPIO_Port,RELAY_HIST_Pin, GPIO_PIN_SET);
+          error=20;  
+        }
+        if (phase_c_work)
+        {
+          error=19;  
         }
         
+      }else if ((phase_a_work==0)&&(phase_control==3))
+      { 
+        error=18;
+      }else if (phase_control==0||phase_control==3)
+      { 
+        power=voltage*cosFI*(current_a)/(200*100);
       }
-      
-      if (last_sec!=CurTime.Seconds)
-        {
-          last_sec=CurTime.Seconds;
-          worktime++;
-          if (curPoint%2==1)
-            {
-              target1=Temp_start+(point[curPoint].target-Temp_start)*worktime/ramp_time;                 
-            }
-        }
-      if ((point_num>0)&&(worktime>=(point[curPoint].Minuts*60+point[curPoint].Sec)))
-        {
-          worktime=0;
-          curPoint++;
-          if (curPoint<=point_num){
-            if (curPoint%2==0)
-            {
-              __HAL_TIM_SET_COUNTER(&htim3,point[curPoint].target);
-              target1=point[curPoint].target;
-            }else {
-              Temp_start=Temp_ADC;
-              ramp_time=point[curPoint].Minuts*60+point[curPoint].Sec;
-            }
-          }
-          else{
-            start=0;
-            flag=0;
-            curPoint=0;
-          }
-        
-        }
-        
-        
-    }else{
-       TIM2->CCR1=0;
-       NVIC_DisableIRQ(EXTI3_IRQn);
-       HAL_GPIO_WritePin(BREIZ_OUT_GPIO_Port,BREIZ_OUT_Pin, GPIO_PIN_RESET);
-       HAL_GPIO_WritePin(RELAY_HIST_GPIO_Port,RELAY_HIST_Pin, GPIO_PIN_RESET);  
-    }
-    //------------------------------------------------------------//
+      //=========================================//
     
-    
-   
-    osDelay(200);
 
+    
+    
+    //-------------------calculations short current, temperature, pressure sensor------------------------//
+    if ((short_circut_current)&&(short_circut_current<current_a/20)){error=7;}                                                      //255=25.5A*10, 4096/200
+    if ((short_circut_current)&&(short_circut_current<current_b/20)){error=8;}
+    if ((short_circut_current)&&(short_circut_current<current_c/20)){error=9;}
+    if ((T1_max)&&(T1>T1_max)){error=2;}
+    if ((T2_max)&&(T2>T2_max)){error=3;}
+    if ((P_HH)&&(P_HH<P)){error=5;}
+    if ((P_LL)&&(P_LL>P)){error=6;}
+    //=========================================//
+    
+    //-------------------phase control-------------------//
+    if ((phase_control==1)&&(Time_b>Time_c)){error=1;}
+    if ((phase_control==2)&&(Time_b<Time_c)){error=1;}
+    //==================================================//
+        
+    //----------------------------startuem----------------------------------//
+    if ((!error)&&(P<P_min))
+      {
+        //----------------------------furst run----------------------------------//
+        if (worktime==0)
+          {
+            furst_run=1;
+          }
+        if (start_time>0){
+          HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_SET);
+        }
+        if (strobe)
+          {
+            start_time++;
+            worktime++;
+            time_10s++;  
+            
+            if (start_time>5)
+              {
+                if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
+                if (P<(P_old+5)&&P>(P_old-5)){
+                  P_time_old++;
+                  if ((P_time_old>dP_time)&&dP_time){error=16;}  //pressure not change
+                }else{
+                  P_time_old=0;
+                  P_old=P; 
+                }              
+              }
+            if ((P_old_10s&&dP_error)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
+            
+          }
+        //=======================================================================================//
+        
+
+        
+        
+        //----------------------------solenoid----------------------------------//
+        if (start_time<4)
+          {
+            P_old=P; 
+            P_ini=P;
+            HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
+          }else{
+            HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
+          }
+        //=======================================================================================//
+      }
+    else if((error)||(P>P_max))
+      {
+        if (furst_run){
+           furst_run=0;
+           Flow_nominal=((P*Reciver_capacyty/P_ini)-Reciver_capacyty)*(start_time-3)/60;
+           Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
+           Time_Pmin_Pmax_old=start_time;
+          }
+        P_time_old=0;
+        Time_Pmin_Pmax=start_time;
+        start_time=0;
+        HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
+		if (error)
+		{
+									//pip-pip???
+			
+		}
+      }
+
+    //==================================================//
+    if (strobe)
+        {
+            if ((P_old_10s&&dP_error)&&(P_old_10s-P)>dP_error){error=4;}//depressurization
+        }    
+    //----------------------------flow 6s----------------------------------//
+    if ((CurTime.Seconds%10==5)&&(strobe))
+     {
+       Flow_current=(P-P_old_10s)*Reciver_capacyty*10-Flow_nominal;
+       P_old_10s=P;
+     }
+    //=======================================================================================//
+    strobe=0;
+    phase_a_work=0;
+    phase_b_work=0;
+    phase_c_work=0;    
+    osDelay(100);
   }
   /* USER CODE END 5 */
 }
 
-/* USER CODE BEGIN Header_PID */
+/* USER CODE BEGIN Header_Flow */
 /**
-* @brief Function implementing the PID_task thread.
+* @brief Function implementing the Flow_meter thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_PID */
-void PID(void *argument)
+/* USER CODE END Header_Flow */
+void Flow(void *argument)
 {
-  /* USER CODE BEGIN PID */
+  /* USER CODE BEGIN Flow */
   /* Infinite loop */
   for(;;)
   {
-    osDelay(300);
-//-------------------pid1------------------------------------------//   
-      Error1=target1-Temp_ADC;   
-      regI1=0;
-      for (iter=0; iter<I1; iter++)  
-      {
-        regI1=regI1+errorsold1[iter];
-      } 
-      regP1=Error1*P1;  
-      regI1 =(I1>0)? (regI1 + Error1):0; 
-      regD1=(Error1-errorsold1[0])*D1; 
-      if (regD1<(-10000))
-      {
-        regD1=(-10000);
-      }
-      if (regD1>(10000))
-      {
-        regD1=(10000);
-      }
-      if (regI1<(-10000))
-      {
-        regI1=(-10000);
-      }
-      if (regI1>(10000))
-      {
-        regI1=(10000);
-      }
-      for (iter=254; iter>0; iter--)
-      {
-      errorsold1[iter+1]=errorsold1[iter];
-      } 
-      errorsold1[0]=Error1;
-      if ((Error1>=dead_zone1)||(dead_zone1==0)||(Error1<=(dead_zone1*(-1))) )  
-      {
-        PID1=regP1+regI1+regD1; 
-        PID1=(direct==0)?PID1:PID1*(-1);
-        if (PID1<0)
-        {
-          X1=0;
-        }
-        if (PID1>=10000)
-        {
-          X1=100;
-          PID1=10000;
-        }
-        if((PID1>=0)&&(PID1<10000))
-        {
-          X1=PID1/100; //koeff moshnosti
-        }
-      }
-//---------------------------------------------------------//    
-    
+    osDelay(1);
   }
-  /* USER CODE END PID */
+  /* USER CODE END Flow */
 }
 
 /* USER CODE BEGIN Header_Screen */
@@ -1070,573 +1020,634 @@ void PID(void *argument)
 void Screen(void *argument)
 {
   /* USER CODE BEGIN Screen */
-    char R[16];
-    osDelay(500);
-    uint16_t worktime_old=0,worktime_hour;
-    uint8_t choise=0,point_n=0,clear;
-    
-    
+  char R[16];
+  uint8_t choise=0,worktimeclear=0;
+   //----------Horse---------------
+  ssd1306_Init();
+  ssd1306_Fill(Black);
+  ssd1306_UpdateScreen();
+  startScreen();
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(32,16); 
+  startScreen();
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(64,32); 
+  startScreen();
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(96,16); 
+  startScreen();
+  ssd1306_Fill(Black);
+  //------------------------------------
+  
+  osDelay(300);
+  
   /* Infinite loop */
   for(;;)
   {
+    
     switch(flag)
     {
-      //------------------------------startyem--------------------------------//
-      case 0:
-        Cursor(0,0);
-        PrintStr("C");
-        SendByte(0xBF,1);  //t
-        PrintStr("ap");
-        SendByte(0xBF,1);
-        PrintStr("ye");
-        SendByte(0xBC,1);   //m            
-        PrintStr("? Kop-");
-        SendByte(0xE0,1);   //D
-        PrintStr("a");
-
-        Cursor(1,0);
-        SendByte(0xA9,1);  //Y
-        SendByte(0xE3,1);  //d
-        PrintStr("ep");
-        SendByte(0xB6,1);  //j
-        PrintStr(".-Hac");
-        SendByte(0xBF,1);  //t
-        PrintStr("po");
-        SendByte(0xB9,1);  //i'
-        SendByte(0xBA,1);  //k
-        SendByte(0xB8,1);  //i
-        
+    case 0:
+        //------------------------------startyem--------------------------------//
+		ssd1306_SetCursor(0,0);
+		ssd1306_WriteString("Flow nom:",Font_7x10,White);
+		sprintf(R,"%04d",Flow_nominal);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("L/min",Font_7x10,White);
+		ssd1306_SetCursor(0,11);
+		ssd1306_WriteString("Ia:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",current_a/200,'.',(current_a/20)%10);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("A  T1:",Font_7x10,White);
+		sprintf(R,"%03d",T1);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("C",Font_7x10,White);
+		ssd1306_WriteChar(0x7F,Font_7x10,White);
+		ssd1306_SetCursor(0,22);
+		ssd1306_WriteString("Ib:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",current_b/200,'.',(current_b/20)%10);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("A  T2:",Font_7x10,White);
+		sprintf(R,"%03d",T2);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("C",Font_7x10,White);
+		ssd1306_WriteChar(0x7F,Font_7x10,White);
+		ssd1306_SetCursor(0,33);
+		ssd1306_WriteString("Ic:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",current_c/200,'.',(current_c/20)%10);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("A Work",Font_7x10,White);
+		sprintf(R,"%04u%c",worktime/3600,'h');
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_SetCursor(0,43);
+		ssd1306_WriteString("Ton  ",Font_7x10,White);
+		sprintf(R,"%04d",Time_Pmin_Pmax);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString("s V:",Font_7x10,White);
+		sprintf(R,"%03d",voltage);
+		ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_WriteString(" V",Font_7x10,White);
+		ssd1306_SetCursor(0,53);
+		ssd1306_WriteString("TNom ",Font_7x10,White);
+		sprintf(R,"%04d",Time_Pmin_Pmax_old);
+		ssd1306_WriteString(R,Font_7x10,White);
+		
+        if (error!=0)
+          {
+            flag=5;//5
+            break;
+          }
         if (button>1000) 
           {
-            ClearLCDScreen();
-            flag=2;
-            __HAL_TIM_SET_COUNTER(&htim3,P1);
-            choise=0;
+            flag=3;
+            __HAL_TIM_SET_COUNTER(&htim3,P_max);
           } else if (button>100)
           {
-            ClearLCDScreen();
-            __HAL_TIM_SET_COUNTER(&htim3,point[curPoint].target);
             flag=1;
-            start=1;
-			worktime_old=0;
           }
-      break; 
-      //===========================================================//
-      
-      
-      //-------------------------------main-----------------------------//
-      case 1:
-        if (clear){ClearLCDScreen();clear=0;}
-        Cursor(0,0);
-        SendByte(0xA4,1);  //Z
-        PrintStr("a");
-        SendByte(0xE3,1);  //d
-        PrintStr("a");
-        SendByte(0xBD,1);  //n
-        SendByte(0xB8,1);  //i
-        PrintStr("e: ");
-        sprintf(R,"%04d",target1);
-        PrintStr(R);        
-        SendByte(0xEF,1);  //0
-        PrintStr("C");
-        if (sensor<2)
-        {
-          Cursor(1,0);
-          PrintStr("T:");  
-          sprintf(R,"%04d",Temp_ADC);
-          PrintStr(R);
-        } else{
-          if (worktime<worktime_old+3){
-            Cursor(1,0);
-            PrintStr("1:");  
-            sprintf(R,"%04d",t_cur[0]);
-            PrintStr(R);
-          }else if (worktime<worktime_old+6){
-            Cursor(1,0);
-            PrintStr("2:");  
-            sprintf(R,"%04d",t_cur[1]);
-            PrintStr(R);
-          }else{
-            Cursor(1,0);
-            PrintStr("T:");  
-            sprintf(R,"%04d",Temp_ADC);
-            PrintStr(R);
-          }
-        }
-        if (!mistake)
-        {
-          PrintStr(" ");
-        }else
-        {
-          SendByte(0xD5,1);  //x
-        }
-        
-        if ((target1!=EncoderVal)&&(curPoint%2==0))
+        break;
+    case 1:
+        //------------------------------prodoljaem--------------------------------//
+		ssd1306_SetCursor(0,7);
+		ssd1306_WriteString("Pressure:",Font_7x10,White);
+		ssd1306_SetCursor(63,0);
+		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+		ssd1306_WriteString(R,Font_11x18,White);
+		ssd1306_SetCursor(107,7);
+		ssd1306_WriteString("kg",Font_7x10,White);
+		//ssd1306_Draw_dot_colum_line(0,20);
+		ssd1306_SetCursor(0,29);
+		ssd1306_WriteString("Flow:",Font_7x10,White);
+		ssd1306_SetCursor(35,22);
+		sprintf(R,"%05d",Flow_current);
+		ssd1306_WriteString(R,Font_11x18,White);
+		ssd1306_SetCursor(90,29);
+		ssd1306_WriteString("L/min",Font_7x10,White);
+		//ssd1306_Draw_dot_colum_line(0,43);
+		ssd1306_SetCursor(0,52);
+		ssd1306_WriteString("Power:",Font_7x10,White);
+		ssd1306_SetCursor(42,45);
+		sprintf(R,"%02d%c%01d",power/1000,'.',(power/100)%10);
+		ssd1306_WriteString(R,Font_11x18,White);
+		ssd1306_SetCursor(90,52);
+		ssd1306_WriteString("kW",Font_7x10,White);
+        if (error!=0)
           {
-            point[curPoint].target=EncoderVal%1200;
-            target1=point[curPoint].target;
-          }
-        if (worktime<worktime_old+5)
-          {
-            Cursor(1,7);
-            PrintStr("P:"); 
-            sprintf(R,"%03d",X1);
-            PrintStr(R);
-            PrintStr("%");
-            sprintf(R,"%02d",curPoint);
-            PrintStr(R);
-            SendByte(0xBF,1);  //t
-          } else 
-          {
-            Cursor(1,7);
-            worktime_hour=worktime/3600;
-            worktime_hour=(worktime_hour>999)?999:worktime_hour;
-            sprintf(R,"%03d",worktime/3600);
-            PrintStr(R);
-            PrintStr(":");
-            sprintf(R,"%02d",(worktime%3600)/60);
-            PrintStr(R);
-            PrintStr(":");            
-            sprintf(R,"%02d",worktime%60);
-            PrintStr(R);        
-            if (worktime>worktime_old+9)
-            {
-              clear=1;
-              worktime_old=worktime;
-            } 
+            flag=5; 
+            break;
           }
         if (button>1000) 
           {
-            ClearLCDScreen();
-            flag=2;
-            start=0;
-            __HAL_TIM_SET_COUNTER(&htim3,P1);
-            choise=0;
-          }         
-
-      break; 
-      //===========================================================//
-      
-      
-      //-------------------------------set1-----------------------------// 
-      case 2:
-        Cursor(0,0);
-        PrintStr("P");
-        sprintf(R,"%03d",P1);
-        PrintStr(R);
-        PrintStr(" I");
-        sprintf(R,"%03d",I1);
-        PrintStr(R);
-        PrintStr(" D");
-        sprintf(R,"%03d",D1);
-        PrintStr(R);
-        Cursor(1,0);
-        SendByte(0xA1,1);  //G          
-        SendByte(0xB8,1);  //i  
-        PrintStr("c");
-        SendByte(0xBF,1);  //t        
-        PrintStr(":");
-        sprintf(R,"%03d",hysteresys);
-        PrintStr(R);        
-        SendByte(0xEF,1);  //0
-        PrintStr("C Dir-");  
-        sprintf(R,"%01d",direct);
-        PrintStr(R); 
-        switch (choise)
-        {
-          case 0:
-            Cursor(0,3);
-            P1=EncoderVal%256;
-            break;
-          case 1:
-            Cursor(0,8);
-            I1=EncoderVal%256;
-            break;
-          case 2:
-            Cursor(0,13);
-            D1=EncoderVal%256;
-            break;
-          case 3:
-            Cursor(1,7);
-            hysteresys=EncoderVal%256;
-            break;    
-          case 4:
-            Cursor(1,15);
-            direct=EncoderVal%2;
-            break;           
-        }
-        if (button>1000) 
-          {
-            ClearLCDScreen();
             flag=3;
-            start=0;
-            choise=0;
-            __HAL_TIM_SET_COUNTER(&htim3,sensor);
-          } else if (button>100) 
+            __HAL_TIM_SET_COUNTER(&htim3,P_max);
+          } else if (button>100)
           {
-            choise=(choise>3)?0:choise+1;
-            switch (choise)
-              {
-                case 0:
-                  __HAL_TIM_SET_COUNTER(&htim3,P1);
-                  break;
-                case 1:
-                  __HAL_TIM_SET_COUNTER(&htim3,I1);
-                  break;
-                case 2:
-                  __HAL_TIM_SET_COUNTER(&htim3,D1);
-                  break;
-                case 3:
-                  __HAL_TIM_SET_COUNTER(&htim3,hysteresys);
-                  break;    
-                case 4:
-                  __HAL_TIM_SET_COUNTER(&htim3,direct);
-                  break;           
-              }
-          }         
-      break;     
-      //===========================================================//
-      
-      
-      //-------------------------------set2-----------------------------//       
-      
-      case 3:
-        Cursor(0,0);
-        SendByte(0xE0,1);   //D
-        PrintStr("a");        
-        SendByte(0xBF,1);  //t      
-        SendByte(0xC0,1);  //4  
-        SendByte(0xB8,1);  //i 
-        SendByte(0xBA,1);  //k
-        PrintStr("-");
-        if (sensor==0)
-          {
-            SendByte(0xBF,1);  //t 
-            PrintStr("ep");
-            SendByte(0xBC,1);   //m
-            PrintStr("o");
-            SendByte(0xBE,1);   //n-p
-            PrintStr("apa");
-          }else if(sensor==1){
-            PrintStr("co");
-            SendByte(0xBE,1);   //n-p
-            PrintStr("po");
-            SendByte(0xBF,1);  //t
-            SendByte(0xB8,1);  //i
-            SendByte(0xB3,1);  //v
-            SendByte(0xBB,1);  //l
-          }else if(sensor==2){   
-            PrintStr("cpe");
-            SendByte(0xE3,1);  //d
-            PrintStr(".");
-            SendByte(0xB8,1);  //i 
-            SendByte(0xB7,1);  //z
-            PrintStr("2x");
-          }else if(sensor==3){   
-            PrintStr("Ma");
-            SendByte(0xBA,1);  //k
-            PrintStr("c");
-            PrintStr(".");
-            SendByte(0xB8,1);  //i 
-            SendByte(0xB7,1);  //z
-            PrintStr("2x");
-           }else if(sensor==4){   
-            PrintStr("M");
-            SendByte(0xB8,1);  //i
-            SendByte(0xBD,1);   //n-N
-            PrintStr(" .");
-            SendByte(0xB8,1);  //i 
-            SendByte(0xB7,1);  //z
-            PrintStr("2x");  
-        }
-            
-        Cursor(1,0);     
-        PrintStr("Ma");
-        SendByte(0xBA,1);  //k
-        PrintStr("c");
-        sprintf(R,"%04d",MAX_EU);
-        PrintStr(R);
-        PrintStr(" M");
-        SendByte(0xB8,1);  //i
-        SendByte(0xBD,1);   //n-p
-        sprintf(R,"%04d",MIN_EU);
-        PrintStr(R);
-        
-        switch (choise)
-        {
-          case 0:
-            Cursor(0,7);
-            sensor=EncoderVal%5;
-            break;
-          case 1:
-            Cursor(1,4);
-            MAX_EU=(EncoderVal%1300)-100;
-            break;
-          case 2:
-            Cursor(1,12);
-            MIN_EU=(EncoderVal%1300)-100;
-            break;
-        }
-        
-        if (button>1000) 
-          {
-            ClearLCDScreen();
-            flag=4;
-            start=0;
-            choise=0;
-            __HAL_TIM_SET_COUNTER(&htim3,brightness);
-          } else if (button>100) 
-          {
-             choise=(choise>1)?0:choise+1;
-             switch (choise)
-              {
-                case 0:
-                  __HAL_TIM_SET_COUNTER(&htim3,sensor);
-                  break;
-                case 1:
-                  __HAL_TIM_SET_COUNTER(&htim3,MAX_EU+100);
-                  break;
-                case 2:
-                  __HAL_TIM_SET_COUNTER(&htim3,MIN_EU+100);
-                  break;
-              }
-          } 
-      break; 
-      //===========================================================//
-      
-      
-      //-------------------------------set3-----------------------------//       
-      case 4:
-        Cursor(0,0);
-        SendByte(0xB1,1);  //9I
-        PrintStr("p");
-        SendByte(0xBA,1);  //k
-        PrintStr("-");
-        sprintf(R,"%03d",brightness);
-        PrintStr(R);
-        PrintStr("% To");
-        SendByte(0xC0,1);  //4
-        PrintStr("e");
-        SendByte(0xBA,1);  //k
-        sprintf(R,"%02d",point_num);
-        PrintStr(R);
-        Cursor(1,0);
-        PrintStr("A");
-        SendByte(0xB3,1);  //v
-        SendByte(0xBF,1);  //t
-        PrintStr("o");
-        SendByte(0xB7,1);  //z
-        PrintStr("a");
-        SendByte(0xBE,1);   //n-p
-        PrintStr("yc");
-        SendByte(0xBA,1);  //k
-        PrintStr("-");
-        if (autostart)
-          {
-            SendByte(0xE3,1);  //d
-            PrintStr("a ");
-          }else {
-            SendByte(0xBD,1); //n
-            PrintStr("e");
-            SendByte(0xBF,1);  //t
+            flag=2;
           }
-        switch (choise)
-        {
-          case 0:
-            Cursor(0,6);
-            brightness=EncoderVal%101;
-            break;
-          case 1:
-            Cursor(0,15);
-            point_num=EncoderVal%20;
-            break;
-          case 2:
-            Cursor(1,13);
-            autostart=EncoderVal%2;
-            break;
-        }
+        break;
+    case 2:
+        //------------------------------do sih por--------------------------------//
+		ssd1306_SetCursor(0,0);
+		ssd1306_WriteString("Stack, heap, zalupa",Font_7x10,White);
+        if (error!=0)
+          {
+            flag=5; 
+            //break;
+          }
         if (button>1000) 
           {
-            ClearLCDScreen();
-            flag=5;
-            start=0;
-            choise=0;
-            __HAL_TIM_SET_COUNTER(&htim3,point_n);
-          } else if (button>100) 
+            flag=3;
+            __HAL_TIM_SET_COUNTER(&htim3,P_max);
+          } else if (button>100)
           {
-            choise=(choise>1)?0:choise+1;
-            switch (choise)
-              {
-                case 0:
-                  __HAL_TIM_SET_COUNTER(&htim3,brightness);
-                  break;
-                case 1:
-                  __HAL_TIM_SET_COUNTER(&htim3,point_num);
-                  break;
-                case 2:
-                  __HAL_TIM_SET_COUNTER(&htim3,autostart);
-                  break;
-              }
-          } 
-      break; 
-      //===========================================================//
-      
-      
-      //-------------------------------set4-----------------------------// 
-      case 5:
-      
-        Cursor(0,0);
-        PrintStr("To");
-        SendByte(0xC0,1);  //4
-        SendByte(0xBA,1);  //k
-        PrintStr("a");
-        sprintf(R,"%02d",point_n);
-        PrintStr(R);
-        PrintStr(" Te");
-        SendByte(0xBC,1);   //m
-        SendByte(0xBE,1);   //n-p
-        sprintf(R,"%04d",point[point_n].target);
-        PrintStr(R);
-        Cursor(1,0);
-        PrintStr("M");
-        SendByte(0xB8,1);  //i
-        SendByte(0xBD,1);  //n
-        PrintStr(":");
-        sprintf(R,"%03d",point[point_n].Minuts);
-        PrintStr(R);
-        PrintStr(" Ce");
-        SendByte(0xBA,1);  //k
-        PrintStr(":");
-        sprintf(R,"%03d",point[point_n].Sec);
-        PrintStr(R);
-        
-        switch (choise)
-        {
-          case 0:
-            Cursor(0,6);
-            point_n=EncoderVal%(point_num+1);
-            break;
-          case 1:
-            Cursor(0,15);
-            point[point_n].target=EncoderVal%1200;
-            break;
-          case 2:
-            Cursor(1,6);
-            point[point_n].Minuts=EncoderVal%256;
-            break;
-          case 3:
-            Cursor(1,14);
-            point[point_n].Sec=EncoderVal%256;
-            break;
-        }
-    
+            flag=0;
+          }       
+        break;    
+    case 3:
+        //------------------------------settings page1--------------------------------//
+        ssd1306_SetCursor(0,0);
+		ssd1306_WriteString("Pmax:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",P_max/10,'.',P_max%10);
+		if (choise==0)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}		
+
+		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+		
+		ssd1306_SetCursor(0,10);
+		ssd1306_WriteString("Pmin:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",P_min/10,'.',P_min%10);
+		if (choise==1)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+		
+		//ssd1306_Draw_dot_colum_line(0,20);
+		ssd1306_SetCursor(0,21);
+		ssd1306_WriteString("P<LL:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",P_LL/10,'.',P_LL%10);
+		if (choise==2)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+		
+		//ssd1306_Draw_dot_colum_line(0,31);
+		ssd1306_SetCursor(0,32);
+		ssd1306_WriteString("P>HH:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",P_HH/10,'.',P_HH%10);
+		if (choise==3)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+		
+		//ssd1306_Draw_dot_colum_line(0,42);
+		ssd1306_SetCursor(0,43);
+		ssd1306_WriteString("dPt:",Font_7x10,White);
+		sprintf(R,"%02d",dP_time);
+		if (choise==4)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		ssd1306_WriteString("c  dPErr",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",dP_error/10,'.',dP_error%10);
+		if (choise==5)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		
+		//ssd1306_Draw_dot_colum_line(0,53);
+		ssd1306_SetCursor(0,53);
+		ssd1306_WriteString("ReciverCap: ",Font_7x10,White);
+		sprintf(R,"%03d",Reciver_capacyty);
+		if (choise==6)
+			{
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
+			}else{
+				ssd1306_WriteString(R,Font_7x10,White);
+			}	
+		ssd1306_WriteString("lit",Font_7x10,White);
+		
+		switch (choise)
+			{
+			  case 0:
+				P_max=EncoderVal%151;
+				break;
+			  case 1:
+				P_min=EncoderVal%151;
+				break;
+			  case 2:
+				P_LL=EncoderVal%151;
+				break;
+			  case 3:
+				P_HH=EncoderVal%151;
+				break;
+			  case 4:
+				dP_time=EncoderVal%100;
+				break;
+			  case 5:
+				dP_error=EncoderVal%128;
+				break;
+			  case 6:
+				Reciver_capacyty=EncoderVal%1000;
+				break;				
+			}
+		
         if (button>1000) 
           {
-            flag=6;
-            start=0;
+            flag=4;
             choise=0;
-            __HAL_TIM_SET_COUNTER(&htim3,0);
-            ClearLCDScreen();
-          } else if (button>100) 
-          {
-            choise=(choise>2)?0:choise+1;
-            switch (choise)
+            __HAL_TIM_SET_COUNTER(&htim3,phase_control);
+          } else if (button>100){
+            choise=(choise>=6)?0:choise+1;
+			switch (choise)
               {
                 case 0:
-                  __HAL_TIM_SET_COUNTER(&htim3,point_n);
+                  __HAL_TIM_SET_COUNTER(&htim3,P_max);
                   break;
                 case 1:
-                  __HAL_TIM_SET_COUNTER(&htim3,point[point_n].target);
+                  __HAL_TIM_SET_COUNTER(&htim3,P_min);
                   break;
                 case 2:
-                  __HAL_TIM_SET_COUNTER(&htim3,point[point_n].Minuts);
+                  __HAL_TIM_SET_COUNTER(&htim3,P_LL);
                   break;
                 case 3:
-                  __HAL_TIM_SET_COUNTER(&htim3,point[point_n].Sec);
+                  __HAL_TIM_SET_COUNTER(&htim3,P_HH);
+                  break;
+				case 4:
+                  __HAL_TIM_SET_COUNTER(&htim3,dP_time);
+                  break;
+                case 5:
+                  __HAL_TIM_SET_COUNTER(&htim3,dP_error);
+                  break;
+                case 6:
+                  __HAL_TIM_SET_COUNTER(&htim3,Reciver_capacyty);
+                  break;
+              }
+          }       
+        break;    
+    case 4:
+        //------------------------------settings page2--------------------------------//        
+		ssd1306_SetCursor(0,0);
+		ssd1306_WriteString("Phase",Font_7x10,White);
+		if (choise==0)
+		{
+			switch(phase_control){
+                                case 0:
+					ssd1306_WriteString("---",Font_7x10,CurTime.Seconds%2);
+				break;
+				case 1:
+					ssd1306_WriteString("ABC",Font_7x10,CurTime.Seconds%2);
+				break;
+				case 2:
+					ssd1306_WriteString("CBA",Font_7x10,CurTime.Seconds%2);
+				break;
+                                case 3:
+					ssd1306_WriteString("-A-",Font_7x10,CurTime.Seconds%2);
+				break;
+
+			}
+		}else{
+			switch(phase_control){
+                                case 0:
+					ssd1306_WriteString("---",Font_7x10,White);
+				break;
+				case 1:
+					ssd1306_WriteString("ABC",Font_7x10,White);
+				break;
+				case 2:
+					ssd1306_WriteString("CBA",Font_7x10,White);
+				break;
+                                case 3:
+					ssd1306_WriteString("-A-",Font_7x10,White);
+				break;
+			}
+			
+		}
+
+		ssd1306_WriteString(" CosFI",Font_7x10,White);
+		if (choise==1)
+			{
+				sprintf(R,"%01d%c%02d",cosFI/100,'.',cosFI%100);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%01d%c%02d",cosFI/100,'.',cosFI%100);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}
+		
+		
+		
+		ssd1306_SetCursor(0,10);
+		ssd1306_WriteString("dI:",Font_7x10,White);
+		if (choise==2)
+			{
+				sprintf(R,"%01d%c%02d",Current_diference/100,'.',Current_diference%100);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%01d%c%02d",Current_diference/100,'.',Current_diference%100);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}
+		
+		ssd1306_WriteString("A  T2:",Font_7x10,White);
+		if (choise==3)
+			{
+				sprintf(R,"%03d ",T2_max);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%03d ",T2_max);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}		
+
+		ssd1306_SetCursor(0,21);
+		ssd1306_WriteString("IK3:",Font_7x10,White);
+		if (choise==4)
+			{
+				sprintf(R,"%02d%c%01d",short_circut_current/10,'.',short_circut_current%10);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%02d%c%01d",short_circut_current/10,'.',short_circut_current%10);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}			
+
+		ssd1306_WriteString("A  T1:",Font_7x10,White);
+		if (choise==5)
+			{
+				sprintf(R,"%03d",T1_max);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%03d",T1_max);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}				
+
+		ssd1306_SetCursor(0,32);
+		ssd1306_WriteString("PowerNom:",Font_7x10,White);
+		if (choise==6)
+			{
+				sprintf(R,"%01d%c%02d",power_nom/25,'.',power_nom*4%100);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%01d%c%02d",power_nom/25,'.',power_nom*4%100);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}			
+		ssd1306_WriteString("kW",Font_7x10,White);
+
+		ssd1306_SetCursor(0,43);
+		ssd1306_WriteString("WorkTimeClear-",Font_7x10,White);
+		if (choise==7)
+			{
+				if (worktimeclear)
+					{
+						ssd1306_WriteString("YES",Font_7x10,CurTime.Seconds%2);
+					}else{
+						ssd1306_WriteString("NOT",Font_7x10,CurTime.Seconds%2);
+					}
+			}else{
+				if (worktimeclear)
+					{
+						ssd1306_WriteString("YES",Font_7x10,White);
+					}else{
+						ssd1306_WriteString("NOT",Font_7x10,White);
+					}
+			}			
+
+		switch (choise)
+			{
+			  case 0:
+				phase_control=EncoderVal%4;
+				break;
+			  case 1:
+				cosFI=EncoderVal%101;
+				break;
+			  case 2:
+				Current_diference=EncoderVal%256;
+				break;
+			  case 3:
+				T2_max=EncoderVal%256;
+				break;
+			  case 4:
+				short_circut_current=EncoderVal%256;
+				break;
+			  case 5:
+				T1_max=EncoderVal%256;
+				break;
+			  case 6:
+				power_nom=EncoderVal%256;
+				break;				
+			  case 7:
+				worktimeclear=EncoderVal%2;
+				break;	
+			}
+			
+          if (button>1000) 
+          {
+            flag=0;
+            choise=0;
+            if (worktimeclear){worktime=0;}
+            Flash_save();	
+            error=0;  
+          } else if (button>100)
+          {
+            choise=(choise>=7)?0:choise+1;
+              switch (choise)
+              {
+                case 0:
+                  __HAL_TIM_SET_COUNTER(&htim3,phase_control);
+                  break;
+                case 1:
+                  __HAL_TIM_SET_COUNTER(&htim3,cosFI);
+                  break;
+                case 2:
+                  __HAL_TIM_SET_COUNTER(&htim3,Current_diference);
+                  break;
+                case 3:
+                  __HAL_TIM_SET_COUNTER(&htim3,T2_max);
+                  break;
+		case 4:
+                  __HAL_TIM_SET_COUNTER(&htim3,short_circut_current);
+                  break;
+                case 5:
+                  __HAL_TIM_SET_COUNTER(&htim3,T1_max);
+                  break;
+                case 6:
+                  __HAL_TIM_SET_COUNTER(&htim3,power_nom);
+                  break;
+                case 7:
+                  __HAL_TIM_SET_COUNTER(&htim3,worktimeclear);
                   break;
               }
           } 
-      
-      break; 
-      //===========================================================//
-      
-      
-      //-------------------------------set5-----------------------------// 
-      case 6:
-        Cursor(0,0);
-        PrintStr("Coxpa");
-        SendByte(0xBD,1);  //n
-        SendByte(0xB8,1);  //i
-        SendByte(0xBF,1);  //t
-        SendByte(0xC4,1);  //b
-        PrintStr(" ");
-        SendByte(0xBD,1);  //n
-        PrintStr("ac");
-        SendByte(0xBF,1);  //t
-        PrintStr("p.");
-        Cursor(1,0);
-        PrintStr("  ");
-        SendByte(0xE0,1);  //D
-        PrintStr("a      He");
-        SendByte(0xBF,1);  //t
-        switch (choise)
-        {
-          case 0:
-            Cursor(1,4);
-            break;
-          case 1:
-            Cursor(1,11);
-            break;
-        }
+
+        break;
+    case 5:
+        //------------------------------vse its over--------------------------------//
+		ssd1306_SetCursor(0,7);
+		ssd1306_WriteString("Pressure:",Font_7x10,White);
+		ssd1306_SetCursor(63,0);
+		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+		ssd1306_WriteString(R,Font_11x18,White);
+		ssd1306_SetCursor(107,7);
+		ssd1306_WriteString("kg",Font_7x10,White);
+		ssd1306_SetCursor(35,18);
+		ssd1306_WriteString("Error!!!",Font_7x10,White);
+		switch(error)
+		{
+			case 1:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("    Wrong phase",Font_7x10,White);  //18 max
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("    rotation",Font_7x10,White);  //18 max
+			break;
+			case 2:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Overheating T1>max",Font_7x10,White);  //18 max
+
+			break;
+			case 3:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Overheating T2>max",Font_7x10,White);  //18 max
+			break;
+			case 4:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("depressurization",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("dP>dP_max for 6sec",Font_7x10,White);  //18 max			
+			break;
+			case 5:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("wrong sensor",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("P>P_HH",Font_7x10,White);  //18 max							
+			break;
+			case 6:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("wrong sensor",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("P<P_LL",Font_7x10,White);  //18 max			
+			break;
+			case 7:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase A",Font_7x10,White);  //18 max		
+			break;
+			case 8:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase B",Font_7x10,White);  //18 max				
+			break;
+			case 9:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Short circuit",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase C",Font_7x10,White);  //18 max				
+			break;
+			case 10:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase A>BC",Font_7x10,White);  //18 max					
+			break;
+			case 11:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase A<BC",Font_7x10,White);  //18 max			
+			break;
+			case 12:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase B>CA",Font_7x10,White);  //18 max			
+			break;
+			case 13:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase B<CA",Font_7x10,White);  //18 max				
+			break;
+			case 14:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase C>AB",Font_7x10,White);  //18 max				
+			break;
+			case 15:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Current difference",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Phase C>AB",Font_7x10,White);  //18 max				
+			break;
+			case 16:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Pressure NOT",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("change",Font_7x10,White);  //18 max			
+			break;
+			case 17:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Dry running",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("Power<PowerNominal",Font_7x10,White);  //18 max				
+			break;
+			case 18:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Phase A",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max				
+			break;
+			case 19:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Phase B",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max					
+			break;
+			case 20:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Phase C",Font_7x10,White);  //18 max		
+			ssd1306_SetCursor(0,36);
+			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max					
+			break;
+			
+		}
+
+		
         if (button>1000) 
           {
-            if (!choise){
-              flag=0;
-              start=0;
-              curPoint=0;
-              choise=0;
-              NVIC_DisableIRQ(EXTI3_IRQn);
-              osThreadResume(Flash_taskHandle);
-            }else{
-              flag=0;
-              start=0;
-              curPoint=0;
-              choise=0;
-              
-              //-------------------------Flash---------------------//
-              if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
-               {
-                    MAX_EU=flash_read(User_Page_Adress[0]);
-                    MIN_EU=flash_read(User_Page_Adress[0])>>16;
-                    direct=flash_read(User_Page_Adress[1]);
-                    sensor=flash_read(User_Page_Adress[1])>>8;
-                    brightness=flash_read(User_Page_Adress[1])>>16;
-                    hysteresys=flash_read(User_Page_Adress[2]);
-                    P1=flash_read(User_Page_Adress[2])>>8;  
-                    I1=flash_read(User_Page_Adress[2])>>16;
-                    D1=flash_read(User_Page_Adress[2])>>24; 
-                    autostart=flash_read(User_Page_Adress[3]);
-                    point_num=flash_read(User_Page_Adress[3])>>8;  
-                    for (flash_i=0;flash_i<20;flash_i++)
-                      {
-                        point[flash_i].Minuts=flash_read(User_Page_Adress[flash_i+4]);
-                        point[flash_i].Sec=flash_read(User_Page_Adress[flash_i+4])>>8;
-                        point[flash_i].target=flash_read(User_Page_Adress[flash_i+4])>>16;  
-                      }
-               }
-
-              //====================================================//
-            }
-          } else if (button>100) 
+            flag=3;
+            choise=0;
+            __HAL_TIM_SET_COUNTER(&htim3,P_max);
+          } else if (button>100)
           {
-            choise=(choise>1)?0:choise+1;
-          } 
-      
+            error=0;  
+            flag=0;
+            choise=0;
+          }  
       break; 
+      
+      
     }
+   
+    
+    ssd1306_UpdateScreen();
+    ssd1306_Fill(Black); 
     button=0;
-    osDelay(350);    
-  
+    osDelay(200);
   }
   /* USER CODE END Screen */
 }
@@ -1651,34 +1662,10 @@ void Screen(void *argument)
 void Flash(void *argument)
 {
   /* USER CODE BEGIN Flash */
-  uint32_t flash_ret;
   /* Infinite loop */
   for(;;)
   {
- 
-      osThreadSuspend(Flash_taskHandle);
- 
-      HAL_FLASH_Unlock();
-      Erase.TypeErase=FLASH_TYPEERASE_PAGES;
-      Erase.PageAddress=User_Page_Adress[0];
-      Erase.NbPages=1;
-      HAL_FLASHEx_Erase(&Erase,&flash_ret);
-      if (flash_ret==0xFFFFFFFF)
-      {
-      HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[0],(MAX_EU&0x0000FFFF)|((MIN_EU<<16)&0xFFFF0000));
-      HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[1],(direct&0x000000FF)|((sensor<<8)&0x0000FF00)|((brightness<<16)&0xFFFF0000));
-      HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[2],(hysteresys&0x000000FF)|((P1<<8)&0x0000FF00)|((I1<<16)&0x00FF0000)|((D1<<24)&0xFF000000));
-      HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[3],(autostart&0x000000FF)|((point_num<<8)&0x0000FF00));
-       for (flash_i=0;flash_i<20;flash_i++)
-            {
-              HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[flash_i+4],(point[flash_i].Minuts&0x000000FF)|((point[flash_i].Sec<<8)&0x0000FF00)|((point[flash_i].target<<16)&0xFFFF0000)); 
-            }
- 
-      
-      HAL_FLASH_Lock();
-      flash_ret=0;
-      }
-    
+    osDelay(1);
   }
   /* USER CODE END Flash */
 }
