@@ -820,7 +820,7 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini=0,time_10s=0,P_old_10s=0,strobe=0;
+  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
@@ -842,7 +842,6 @@ void main_func(void *argument)
     T2=(T2+dma[2]/16)/2;
     P=(P+dma[3]/16)/2;                  //255==12at==3v
     P_old_10s=(P_old_10s==0)?P:P_old_10s;
-	P_ini=(P_ini==0)?P:P_ini;
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
     current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
@@ -945,6 +944,7 @@ void main_func(void *argument)
         //----------------------------solenoid----------------------------------//
         if (start_time<4)
           {
+			P_ini=P;
             P_old=P; 
             HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
           }else{
@@ -956,6 +956,7 @@ void main_func(void *argument)
       {
         if (furst_run){
            furst_run=0;
+		   P_ini=(P_ini==0)?1:P_ini;
            Flow_nominal=((P*Reciver_capacyty/P_ini)-Reciver_capacyty)*(start_time-3)/60;
            Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
            Time_Pmin_Pmax_old=start_time;
