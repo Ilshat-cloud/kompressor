@@ -64,13 +64,6 @@ osThreadId_t main_taskHandle;
 const osThreadAttr_t main_task_attributes = {
   .name = "main_task",
   .priority = (osPriority_t) osPriorityLow5,
-  .stack_size = 256 * 4
-};
-/* Definitions for Flow_meter */
-osThreadId_t Flow_meterHandle;
-const osThreadAttr_t Flow_meter_attributes = {
-  .name = "Flow_meter",
-  .priority = (osPriority_t) osPriorityLow6,
   .stack_size = 128 * 4
 };
 /* Definitions for Screen_task */
@@ -80,12 +73,12 @@ const osThreadAttr_t Screen_task_attributes = {
   .priority = (osPriority_t) osPriorityLow7,
   .stack_size = 128 * 4
 };
-/* Definitions for Flash_task */
-osThreadId_t Flash_taskHandle;
-const osThreadAttr_t Flash_task_attributes = {
-  .name = "Flash_task",
-  .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 128 * 4
+/* Definitions for MQTT_task */
+osThreadId_t MQTT_taskHandle;
+const osThreadAttr_t MQTT_task_attributes = {
+  .name = "MQTT_task",
+  .priority = (osPriority_t) osPriorityLow6,
+  .stack_size = 256 * 4
 };
 /* USER CODE BEGIN PV */
 
@@ -104,9 +97,8 @@ static void MX_TIM4_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI2_Init(void);
 void main_func(void *argument);
-void Flow(void *argument);
 void Screen(void *argument);
-void Flash(void *argument);
+void MQTT(void *argument);
 
 /* USER CODE BEGIN PFP */
 void Flash_save(void);
@@ -213,14 +205,11 @@ int main(void)
   /* creation of main_task */
   main_taskHandle = osThreadNew(main_func, NULL, &main_task_attributes);
 
-  /* creation of Flow_meter */
-  Flow_meterHandle = osThreadNew(Flow, NULL, &Flow_meter_attributes);
-
   /* creation of Screen_task */
   Screen_taskHandle = osThreadNew(Screen, NULL, &Screen_task_attributes);
 
-  /* creation of Flash_task */
-  Flash_taskHandle = osThreadNew(Flash, NULL, &Flash_task_attributes);
+  /* creation of MQTT_task */
+  MQTT_taskHandle = osThreadNew(MQTT, NULL, &MQTT_task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -611,11 +600,11 @@ static void MX_TIM3_Init(void)
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 2;
+  sConfig.IC1Filter = 7;
   sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 2;
+  sConfig.IC2Filter = 7;
   if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -735,7 +724,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, SPI2_CS_Pin|Start_solenoid_Pin|START_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, On_LED_Pin|SPI2_CS_Pin|Start_solenoid_Pin|START_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(Alarm_GPIO_Port, Alarm_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : Phase_A_Pin Phase_B_Pin Phase_C_Pin */
   GPIO_InitStruct.Pin = Phase_A_Pin|Phase_B_Pin|Phase_C_Pin;
@@ -743,10 +735,37 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : SPI2_CS_Pin Start_solenoid_Pin START_Pin */
-  GPIO_InitStruct.Pin = SPI2_CS_Pin|Start_solenoid_Pin|START_Pin;
+  /*Configure GPIO pin : Stop_btn_Pin */
+  GPIO_InitStruct.Pin = Stop_btn_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(Stop_btn_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : On_LED_Pin */
+  GPIO_InitStruct.Pin = On_LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(On_LED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SPI2_CS_Pin */
+  GPIO_InitStruct.Pin = SPI2_CS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(SPI2_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Alarm_Pin */
+  GPIO_InitStruct.Pin = Alarm_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Alarm_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Start_solenoid_Pin START_Pin */
+  GPIO_InitStruct.Pin = Start_solenoid_Pin|START_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
@@ -841,7 +860,6 @@ void main_func(void *argument)
     T1=(T1+dma[1]/16)/2;
     T2=(T2+dma[2]/16)/2;
     P=(P+dma[3]/16)/2;                  //255==12at==3v
-    P_old_10s=(P_old_10s==0)?P:P_old_10s;
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
     current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
@@ -890,7 +908,7 @@ void main_func(void *argument)
 
     
     
-    //-------------------calculations short current, temperature, pressure sensor------------------------//
+    //-------------------calculations short current, temperature, pressure sensor,stop_btn------------------------//
     if ((short_circut_current)&&(short_circut_current<current_a/20)){error=7;}                                                      //255=25.5A*10, 4096/200
     if ((short_circut_current)&&(short_circut_current<current_b/20)){error=8;}
     if ((short_circut_current)&&(short_circut_current<current_c/20)){error=9;}
@@ -898,6 +916,7 @@ void main_func(void *argument)
     if ((T2_max)&&(T2>T2_max)){error=3;}
     if ((P_HH)&&(P_HH<P)){error=5;}
     if ((P_LL)&&(P_LL>P)){error=6;}
+    if (HAL_GPIO_ReadPin(START_GPIO_Port,START_Pin)==GPIO_PIN_SET){error=21;}
     //=========================================//
     
     //-------------------phase control-------------------//
@@ -913,6 +932,8 @@ void main_func(void *argument)
           {
             furst_run=1;
           }
+        
+        HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_SET);
         if (start_time>0){
           HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_SET);
         }
@@ -921,7 +942,7 @@ void main_func(void *argument)
             start_time++;
             worktime++;
             time_10s++;  
-            
+            Time_Pmin_Pmax=start_time;
             if (start_time>5)
               {
                 if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
@@ -933,7 +954,7 @@ void main_func(void *argument)
                   P_old=P; 
                 }              
               }
-            if ((P_old_10s&&dP_error)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
+           
             
           }
         //=======================================================================================//
@@ -956,27 +977,30 @@ void main_func(void *argument)
       {
         if (furst_run){
            furst_run=0;
-		   P_ini=(P_ini==0)?1:P_ini;
+           P_ini=(P_ini==0)?1:P_ini;
            Flow_nominal=((P*Reciver_capacyty/P_ini)-Reciver_capacyty)*(start_time-3)/60;
            Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
            Time_Pmin_Pmax_old=start_time;
           }
         P_time_old=0;
-        Time_Pmin_Pmax=start_time;
         start_time=0;
+        HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
-		if (error)
-		{
-									//pip-pip???
-			
-		}
+
       }
+    
 
     //==================================================//
     if (strobe)
         {
-            if ((P_old_10s&&dP_error)&&(P_old_10s-P)>dP_error){error=4;}//depressurization
+            if ((P_old_10s>P)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
+            if (error)
+                  {
+                    HAL_GPIO_TogglePin(Alarm_GPIO_Port,Alarm_Pin);								
+                  }else{
+                    HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_RESET);
+                  }
         }    
     //----------------------------flow 6s----------------------------------//
     if ((CurTime.Seconds%6==5)&&(strobe))
@@ -992,24 +1016,6 @@ void main_func(void *argument)
     osDelay(100);
   }
   /* USER CODE END 5 */
-}
-
-/* USER CODE BEGIN Header_Flow */
-/**
-* @brief Function implementing the Flow_meter thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_Flow */
-void Flow(void *argument)
-{
-  /* USER CODE BEGIN Flow */
-  /* Infinite loop */
-  for(;;)
-  {
-    osDelay(1);
-  }
-  /* USER CODE END Flow */
 }
 
 /* USER CODE BEGIN Header_Screen */
@@ -1365,10 +1371,10 @@ void Screen(void *argument)
 		ssd1306_WriteString("A T2:",Font_7x10,White);
 		if (choise==3)
 			{
-				sprintf(R,"%03d ",T2_max);
+				sprintf(R,"%03d",T2_max);
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
 			}else{
-				sprintf(R,"%03d ",T2_max);
+				sprintf(R,"%03d",T2_max);
 				ssd1306_WriteString(R,Font_7x10,White);
 			}		
 		ssd1306_WriteString("C",Font_7x10,White);
@@ -1624,6 +1630,10 @@ void Screen(void *argument)
 			ssd1306_SetCursor(0,40);
 			ssd1306_WriteString("open circuit",Font_7x10,White);  //18 max					
 			break;
+                        case 21:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Button STOP",Font_7x10,White);  //18 max					
+			break;
 			
 		}
 
@@ -1653,22 +1663,22 @@ void Screen(void *argument)
   /* USER CODE END Screen */
 }
 
-/* USER CODE BEGIN Header_Flash */
+/* USER CODE BEGIN Header_MQTT */
 /**
-* @brief Function implementing the Flash_task thread.
+* @brief Function implementing the MQTT_task thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_Flash */
-void Flash(void *argument)
+/* USER CODE END Header_MQTT */
+void MQTT(void *argument)
 {
-  /* USER CODE BEGIN Flash */
+  /* USER CODE BEGIN MQTT */
   /* Infinite loop */
   for(;;)
   {
     osDelay(1);
   }
-  /* USER CODE END Flash */
+  /* USER CODE END MQTT */
 }
 
 /**

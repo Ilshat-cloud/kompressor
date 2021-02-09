@@ -78,8 +78,14 @@ void Error_Handler(void);
 #define Phase_B_GPIO_Port GPIOB
 #define Phase_C_Pin GPIO_PIN_2
 #define Phase_C_GPIO_Port GPIOB
+#define Stop_btn_Pin GPIO_PIN_10
+#define Stop_btn_GPIO_Port GPIOB
+#define On_LED_Pin GPIO_PIN_11
+#define On_LED_GPIO_Port GPIOB
 #define SPI2_CS_Pin GPIO_PIN_12
 #define SPI2_CS_GPIO_Port GPIOB
+#define Alarm_Pin GPIO_PIN_15
+#define Alarm_GPIO_Port GPIOA
 #define Start_solenoid_Pin GPIO_PIN_3
 #define Start_solenoid_GPIO_Port GPIOB
 #define ENCODER_1_Pin GPIO_PIN_4
