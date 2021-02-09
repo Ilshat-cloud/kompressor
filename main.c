@@ -994,7 +994,7 @@ void main_func(void *argument)
     //==================================================//
     if (strobe)
         {
-            if ((P_old_10s>P)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
+            if ((P_old_10s>P)&&(dP_error)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
             if (error)
                   {
                     HAL_GPIO_TogglePin(Alarm_GPIO_Port,Alarm_Pin);								
