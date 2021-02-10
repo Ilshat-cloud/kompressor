@@ -107,7 +107,7 @@ void Flash_save(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 //--------my global variables----------//
-uint16_t EncoderVal,power=0,voltage,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
+uint16_t EncoderVal,power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
 int16_t Flow_current=0,Flow_nominal=0;
 uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1,T2,T1_max,T2_max,P_ini=0,cosFI,
 current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0;
@@ -176,6 +176,8 @@ int main(void)
           power_nom=flash_read(User_Page_Adress[4])>>8;
           dP_error=flash_read(User_Page_Adress[4])>>16;
           worktime=flash_read(User_Page_Adress[5]);
+          voltage_LL=flash_read(User_Page_Adress[6]);
+          voltage_HH=flash_read(User_Page_Adress[6])>>16;
     
      }
 
@@ -727,10 +729,16 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, On_LED_Pin|SPI2_CS_Pin|Start_solenoid_Pin|START_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(Alarm_GPIO_Port, Alarm_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, W5500_RST_Pin|Alarm_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : Phase_A_Pin Phase_B_Pin Phase_C_Pin */
-  GPIO_InitStruct.Pin = Phase_A_Pin|Phase_B_Pin|Phase_C_Pin;
+  /*Configure GPIO pin : Phase_C_Pin */
+  GPIO_InitStruct.Pin = Phase_C_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(Phase_C_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Phase_A_Pin Phase_B_Pin */
+  GPIO_InitStruct.Pin = Phase_A_Pin|Phase_B_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -755,12 +763,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(SPI2_CS_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Alarm_Pin */
-  GPIO_InitStruct.Pin = Alarm_Pin;
+  /*Configure GPIO pins : W5500_RST_Pin Alarm_Pin */
+  GPIO_InitStruct.Pin = W5500_RST_Pin|Alarm_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Alarm_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : W5500_INT_Pin */
+  GPIO_InitStruct.Pin = W5500_INT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(W5500_INT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : Start_solenoid_Pin START_Pin */
   GPIO_InitStruct.Pin = Start_solenoid_Pin|START_Pin;
@@ -789,8 +803,8 @@ void Flash_save(void)
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[2],(P_HH&0x000000FF)|((P_LL<<8)&0x0000FF00)|((Current_diference<<16)&0x00FF0000)|((T1_max<<24)&0xFF000000));
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[3],(T2_max&0x000000FF)|((cosFI<<8)&0x0000FF00)|((phase_control<<16)&0x00FF0000)|((short_circut_current<<24)&0xFF000000));
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[4],(dP_time&0x000000FF)|((power_nom<<8)&0x0000FF00)|((dP_error<<16)&0x00FF0000)); 
-          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[5],worktime);   
-          
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[5],worktime);    
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[6],(voltage_LL&0x0000FFFF)|((voltage_HH<<16)&0xFFFF0000));
           HAL_FLASH_Lock();
           flash_ret=0;
           }     
@@ -816,10 +830,10 @@ void EXTI1_IRQHandler(void)
     HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
     phase_b_work=1;
 }
-void EXTI2_IRQHandler(void)
+void EXTI9_5_IRQHandler(void)
 {
     Time_c=TIM2->CNT;
-    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_2);
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
     phase_c_work=1;
 }
 
@@ -845,6 +859,9 @@ void main_func(void *argument)
   HAL_TIM_Base_Start(&htim2);
   HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
+  NVIC_EnableIRQ(EXTI0_IRQn);
+  NVIC_EnableIRQ(EXTI1_IRQn);
+  NVIC_EnableIRQ(EXTI9_5_IRQn);
   osDelay(100);
   /* Infinite loop */
   
@@ -857,6 +874,8 @@ void main_func(void *argument)
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
     osDelay(10);
     voltage=(voltage+dma[0]/8)/2;       //real_voltage 511v==4095==3v
+    voltage_LL&=0x1FF;
+    voltage_HH&=0x1FF;
     T1=(T1+dma[1]/16)/2;
     T2=(T2+dma[2]/16)/2;
     P=(P+dma[3]/16)/2;                  //255==12at==3v
@@ -908,7 +927,7 @@ void main_func(void *argument)
 
     
     
-    //-------------------calculations short current, temperature, pressure sensor,stop_btn------------------------//
+    //-------------------calculations short current, temperature, pressure sensor,stop_btn, Voltage up or down------------------------//
     if ((short_circut_current)&&(short_circut_current<current_a/20)){error=7;}                                                      //255=25.5A*10, 4096/200
     if ((short_circut_current)&&(short_circut_current<current_b/20)){error=8;}
     if ((short_circut_current)&&(short_circut_current<current_c/20)){error=9;}
@@ -917,6 +936,8 @@ void main_func(void *argument)
     if ((P_HH)&&(P_HH<P)){error=5;}
     if ((P_LL)&&(P_LL>P)){error=6;}
     if (HAL_GPIO_ReadPin(START_GPIO_Port,START_Pin)==GPIO_PIN_SET){error=21;}
+    if ((voltage>voltage_HH)&&(voltage_HH)){error=23;}
+    if ((voltage<voltage_LL)&&(voltage_LL)){error=22;}
     //=========================================//
     
     //-------------------phase control-------------------//
@@ -1430,6 +1451,27 @@ void Screen(void *argument)
 					}else{
 						ssd1306_WriteString("NOT",Font_7x10,White);
 					}
+			}	
+                
+		ssd1306_SetCursor(0,53);
+		ssd1306_WriteString("V_LL:",Font_7x10,White);
+		if (choise==8)
+			{
+				sprintf(R,"%03d ",voltage_LL);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+                                sprintf(R,"%03d ",voltage_LL);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}
+		ssd1306_SetCursor(63,53);
+		ssd1306_WriteString("V_HH:",Font_7x10,White);
+		if (choise==9)
+			{
+				sprintf(R,"%03d ",voltage_HH);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+                                sprintf(R,"%03d ",voltage_HH);
+				ssd1306_WriteString(R,Font_7x10,White);
 			}			
 
 		switch (choise)
@@ -1458,6 +1500,12 @@ void Screen(void *argument)
 			  case 7:
 				worktimeclear=EncoderVal%2;
 				break;	
+                          case 8:
+				voltage_LL=EncoderVal%512;
+				break;	
+                          case 9:
+				voltage_HH=EncoderVal%512;
+				break;	
 			}
 			
           if (button>1000) 
@@ -1465,11 +1513,17 @@ void Screen(void *argument)
             flag=0;
             choise=0;
             if (worktimeclear){worktime=0;}
+            NVIC_DisableIRQ(EXTI0_IRQn);
+            NVIC_DisableIRQ(EXTI1_IRQn);
+            NVIC_DisableIRQ(EXTI9_5_IRQn);
             Flash_save();	
+            NVIC_EnableIRQ(EXTI0_IRQn);
+            NVIC_EnableIRQ(EXTI1_IRQn);
+            NVIC_EnableIRQ(EXTI9_5_IRQn);            
             error=0;  
           } else if (button>100)
           {
-            choise=(choise>=7)?0:choise+1;
+            choise=(choise>=9)?0:choise+1;
               switch (choise)
               {
                 case 0:
@@ -1496,6 +1550,12 @@ void Screen(void *argument)
                 case 7:
                   __HAL_TIM_SET_COUNTER(&htim3,worktimeclear);
                   break;
+                case 8:
+                  __HAL_TIM_SET_COUNTER(&htim3,voltage_LL);
+                  break;
+                case 9:
+                  __HAL_TIM_SET_COUNTER(&htim3,voltage_HH);
+                  break;                  
               }
           } 
 
@@ -1633,6 +1693,14 @@ void Screen(void *argument)
                         case 21:
 			ssd1306_SetCursor(0,28);
 			ssd1306_WriteString("Button STOP",Font_7x10,White);  //18 max					
+			break;
+                        case 22:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Voltage < V_LL",Font_7x10,White);  //18 max					
+			break;
+                        case 23:
+			ssd1306_SetCursor(0,28);
+			ssd1306_WriteString("Voltage > V_HH",Font_7x10,White);  //18 max					
 			break;
 			
 		}
