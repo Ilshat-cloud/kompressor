@@ -80,6 +80,13 @@ const osThreadAttr_t MQTT_task_attributes = {
   .priority = (osPriority_t) osPriorityLow6,
   .stack_size = 256 * 4
 };
+/* Definitions for MonitorTask */
+osThreadId_t MonitorTaskHandle;
+const osThreadAttr_t MonitorTask_attributes = {
+  .name = "MonitorTask",
+  .priority = (osPriority_t) osPriorityLow4,
+  .stack_size = 64 * 4
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -99,6 +106,7 @@ static void MX_SPI2_Init(void);
 void main_func(void *argument);
 void Screen(void *argument);
 void MQTT(void *argument);
+void monitor(void *argument);
 
 /* USER CODE BEGIN PFP */
 void Flash_save(void);
@@ -180,8 +188,10 @@ int main(void)
           voltage_HH=flash_read(User_Page_Adress[6])>>16;
     
      }
+  //====================================================//
+  
 
-    //====================================================//
+    
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -213,8 +223,12 @@ int main(void)
   /* creation of MQTT_task */
   MQTT_taskHandle = osThreadNew(MQTT, NULL, &MQTT_task_attributes);
 
+  /* creation of MonitorTask */
+  MonitorTaskHandle = osThreadNew(monitor, NULL, &MonitorTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+
   /* USER CODE END RTOS_THREADS */
 
   /* Start scheduler */
@@ -878,7 +892,7 @@ void main_func(void *argument)
     voltage_HH&=0x1FF;
     T1=(T1+dma[1]/16)/2;
     T2=(T2+dma[2]/16)/2;
-    P=(P+dma[3]/16)/2;                  //255==12at==3v
+    P=(P+dma[3]/32)/2;                  //128==12.8at==3v
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
     current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
@@ -967,7 +981,7 @@ void main_func(void *argument)
             if (start_time>5)
               {
                 if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
-                if (P<(P_old+5)&&P>(P_old-5)){
+                if (P<(P_old+3)&&P>(P_old-3)){
                   P_time_old++;
                   if ((P_time_old>dP_time)&&dP_time){error=16;}  //pressure not change
                 }else{
@@ -986,7 +1000,7 @@ void main_func(void *argument)
         //----------------------------solenoid----------------------------------//
         if (start_time<4)
           {
-			P_ini=P;
+            P_ini=P;
             P_old=P; 
             HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
           }else{
@@ -1026,7 +1040,11 @@ void main_func(void *argument)
     //----------------------------flow 6s----------------------------------//
     if ((CurTime.Seconds%6==5)&&(strobe))
      {
-       Flow_current=(P-P_old_10s)*Reciver_capacyty*10-Flow_nominal;
+       if (start_time>2){
+        Flow_current=(P-P_old_10s)*Reciver_capacyty-Flow_nominal;
+       }else{
+        Flow_current=(P-P_old_10s)*Reciver_capacyty;
+       }
        P_old_10s=P;
      }
     //=======================================================================================//
@@ -1747,6 +1765,26 @@ void MQTT(void *argument)
     osDelay(1);
   }
   /* USER CODE END MQTT */
+}
+
+/* USER CODE BEGIN Header_monitor */
+/**
+* @brief Function implementing the MonitorTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_monitor */
+void monitor(void *argument)
+{
+  /* USER CODE BEGIN monitor */
+
+  /* Infinite loop */
+  for(;;)
+  {
+
+    osDelay(5000);
+  }
+  /* USER CODE END monitor */
 }
 
 /**
