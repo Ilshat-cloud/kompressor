@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "sh1106.h"
+#include "task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -117,8 +118,9 @@ void Flash_save(void);
 //--------my global variables----------//
 uint16_t EncoderVal,power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
 int16_t Flow_current=0,Flow_nominal=0;
-uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1,T2,T1_max,T2_max,P_ini=0,cosFI,
+uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI,
 current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0;
+int8_t T1,T2;
 RTC_TimeTypeDef CurTime = {0};
 uint32_t button=0,worktime,flash_ret;
 FLASH_EraseInitTypeDef Erase;
@@ -867,7 +869,7 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0;
+  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
@@ -887,15 +889,43 @@ void main_func(void *argument)
     HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
     osDelay(10);
-    voltage=(voltage+dma[0]/8)/2;       //real_voltage 511v==4095==3v
+    voltage=dma[0]/(11.3137);       //real_voltage 511v==4095==3v  8*sqrt(2)
     voltage_LL&=0x1FF;
     voltage_HH&=0x1FF;
-    T1=(T1+dma[1]/16)/2;
-    T2=(T2+dma[2]/16)/2;
     P=(P+dma[3]/32)/2;                  //128==12.8at==3v
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
     current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
+    NTC_t=0;
+    while (NTC_10k[NTC_t]>dma[1])
+        {
+          NTC_t++;
+        }
+      NTC_t=(NTC_t==0)?1:NTC_t;
+      if ((NTC_10k[NTC_t-1]-dma[1])>(dma[1]-NTC_10k[NTC_t]))
+        {
+          T1=NTC_t-5;
+        }else
+        {
+          T1=NTC_t-6;
+        }
+    NTC_t=0;
+    while (NTC_10k[NTC_t]>dma[2])
+        {
+          NTC_t++;
+        }
+      NTC_t=(NTC_t==0)?1:NTC_t;
+      if ((NTC_10k[NTC_t-1]-dma[2])>(dma[2]-NTC_10k[NTC_t]))
+        {
+          T2=NTC_t-5;
+        }else
+        {
+          T2=NTC_t-6;
+        }
+    
+    
+    
+    
     //=========================================//
     
     //----------------one secound strobe-----------------//
@@ -909,7 +939,7 @@ void main_func(void *argument)
       //-------------------calculations power, phase quantity,difference between phase------------------------//
       if(phase_a_work&&phase_b_work&&phase_c_work)
       {
-        power=1.73*voltage*cosFI*(current_a+current_b+current_c)/(3*200*100);   //current*1000/5=current/200 A cosFI(0,5..1)=0.5==50, 1==100
+        power=3*voltage*cosFI*(current_a+current_b+current_c)/(3*200*100);   //current*1000/5=current/200 A cosFI(0,5..1)=0.5==50, 1==100
         if (Current_diference>0){
           if (current_a>((current_b+current_c+Current_diference)/2)){error=10;}                //255=2.55 A*100 1==0,01A
           if (current_a<((current_b+current_c-Current_diference)/2)){error=11;}
@@ -949,7 +979,7 @@ void main_func(void *argument)
     if ((T2_max)&&(T2>T2_max)){error=3;}
     if ((P_HH)&&(P_HH<P)){error=5;}
     if ((P_LL)&&(P_LL>P)){error=6;}
-    if (HAL_GPIO_ReadPin(START_GPIO_Port,START_Pin)==GPIO_PIN_SET){error=21;}
+    if (HAL_GPIO_ReadPin(Stop_btn_GPIO_Port,Stop_btn_Pin)==GPIO_PIN_SET){error=21;}
     if ((voltage>voltage_HH)&&(voltage_HH)){error=23;}
     if ((voltage<voltage_LL)&&(voltage_LL)){error=22;}
     //=========================================//
@@ -1504,13 +1534,13 @@ void Screen(void *argument)
 				Current_diference=EncoderVal%256;
 				break;
 			  case 3:
-				T2_max=EncoderVal%256;
+				T2_max=EncoderVal%105;
 				break;
 			  case 4:
 				short_circut_current=EncoderVal%256;
 				break;
 			  case 5:
-				T1_max=EncoderVal%256;
+				T1_max=EncoderVal%105;
 				break;
 			  case 6:
 				power_nom=EncoderVal%256;
@@ -1777,12 +1807,31 @@ void MQTT(void *argument)
 void monitor(void *argument)
 {
   /* USER CODE BEGIN monitor */
-
+  
+  
   /* Infinite loop */
   for(;;)
   {
-
     osDelay(5000);
+    /*
+    UBaseType_t task_count = uxTaskGetNumberOfTasks();
+    uint32_t _total_runtime,zalupa,konya;
+    TaskStatus_t _buffer[6];
+     if (task_count <= 6)
+      {
+        task_count = uxTaskGetSystemState(_buffer, task_count, &_total_runtime);
+        zalupa=xPortGetFreeHeapSize();
+        konya=xPortGetMinimumEverFreeHeapSize();
+        if (zalupa==konya)
+          {
+              vTaskDelete(NULL);
+          }else{
+              vTaskDelete(NULL);
+          }
+      }
+    */
+    
+    
   }
   /* USER CODE END monitor */
 }
