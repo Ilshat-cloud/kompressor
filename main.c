@@ -869,7 +869,8 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,start_time=0,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
+  uint8_t secound_old=99,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
+  uint16_t start_time=0;	
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
