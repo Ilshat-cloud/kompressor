@@ -119,7 +119,7 @@ void Flash_save(void);
 uint16_t EncoderVal,power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
 int16_t Flow_current=0,Flow_nominal=0;
 uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI,
-current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0;
+current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0,koef_Pres=0,koef_U=0;
 int8_t T1,T2;
 RTC_TimeTypeDef CurTime = {0};
 uint32_t button=0,worktime,flash_ret;
@@ -188,7 +188,9 @@ int main(void)
           worktime=flash_read(User_Page_Adress[5]);
           voltage_LL=flash_read(User_Page_Adress[6]);
           voltage_HH=flash_read(User_Page_Adress[6])>>16;
-    
+          koef_Pres=flash_read(User_Page_Adress[7])>>16;
+          koef_U=flash_read(User_Page_Adress[7])>>24;
+          
      }
   //====================================================//
   
@@ -805,8 +807,7 @@ static void MX_GPIO_Init(void)
 //---------------------------FLASH--------------------//
 void Flash_save(void)
 {
-	if (flash_read(User_Page_Adress[0])!=0xFFFFFFFF)
-        {
+          taskENTER_CRITICAL();
           HAL_FLASH_Unlock();
           Erase.TypeErase=FLASH_TYPEERASE_PAGES;
           Erase.PageAddress=User_Page_Adress[0];
@@ -821,10 +822,11 @@ void Flash_save(void)
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[4],(dP_time&0x000000FF)|((power_nom<<8)&0x0000FF00)|((dP_error<<16)&0x00FF0000)); 
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[5],worktime);    
           HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[6],(voltage_LL&0x0000FFFF)|((voltage_HH<<16)&0xFFFF0000));
+          HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD ,User_Page_Adress[7],(((koef_Pres<<16)&0x00FF0000)|((koef_U<<24)&0xFF000000)));         
           HAL_FLASH_Lock();
           flash_ret=0;
           }     
-        }
+          taskEXIT_CRITICAL();
 
      //====================================================//
 	
@@ -870,7 +872,7 @@ void main_func(void *argument)
   
   volatile uint16_t dma[7];
   uint8_t secound_old=99,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
-  uint16_t start_time=0;	
+  uint16_t start_time=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
@@ -890,10 +892,11 @@ void main_func(void *argument)
     HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
     osDelay(10);
-    voltage=dma[0]/(11.3137);       //real_voltage 511v==4095==3v  8*sqrt(2)
+    voltage=dma[0]*koef_U/(1131.37);       //real_voltage 511v==4095==3v  8*sqrt(2)
     voltage_LL&=0x1FF;
     voltage_HH&=0x1FF;
     P=(P+dma[3]/32)/2;                  //128==12.8at==3v
+    P=P*koef_Pres/100;
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
     current_c=(current_c+dma[6])/2;  //5mA==1 20.48A==4096==3v
@@ -1053,6 +1056,13 @@ void main_func(void *argument)
         HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
+        NVIC_DisableIRQ(EXTI0_IRQn);
+        NVIC_DisableIRQ(EXTI1_IRQn);
+        NVIC_DisableIRQ(EXTI9_5_IRQn);
+        Flash_save();	
+        NVIC_EnableIRQ(EXTI0_IRQn);
+        NVIC_EnableIRQ(EXTI1_IRQn);
+        NVIC_EnableIRQ(EXTI9_5_IRQn); 
 
       }
     
@@ -1225,8 +1235,7 @@ void Screen(void *argument)
         break;
     case 2:
         //------------------------------do sih por--------------------------------//
-		ssd1306_SetCursor(0,0);
-		ssd1306_WriteString("Stack, heap, zalupa",Font_7x10,White);
+	
         if (error!=0)
           {
             flag=5; 
@@ -1559,17 +1568,9 @@ void Screen(void *argument)
 			
           if (button>1000) 
           {
-            flag=0;
-            choise=0;
-            if (worktimeclear){worktime=0;}
-            NVIC_DisableIRQ(EXTI0_IRQn);
-            NVIC_DisableIRQ(EXTI1_IRQn);
-            NVIC_DisableIRQ(EXTI9_5_IRQn);
-            Flash_save();	
-            NVIC_EnableIRQ(EXTI0_IRQn);
-            NVIC_EnableIRQ(EXTI1_IRQn);
-            NVIC_EnableIRQ(EXTI9_5_IRQn);            
-            error=0;  
+            flag=6;
+            choise=0;      
+            __HAL_TIM_SET_COUNTER(&htim3,koef_U);
           } else if (button>100)
           {
             choise=(choise>=9)?0:choise+1;
@@ -1767,7 +1768,76 @@ void Screen(void *argument)
             choise=0;
           }  
       break; 
-      
+      case 6:
+        //------------------------------settings page3--------------------------------//        
+		ssd1306_SetCursor(0,0);
+
+
+		ssd1306_WriteString("koef_U:",Font_7x10,White);
+		if (choise==0)
+			{
+				sprintf(R,"%01d%c%02d",koef_U/100,'.',koef_U%100);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%01d%c%02d",koef_U/100,'.',koef_U%100);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}
+		ssd1306_SetCursor(0,11);		
+		ssd1306_WriteString("U:",Font_7x10,White);
+		sprintf(R,"%03d",voltage);		
+                ssd1306_WriteString(R,Font_7x10,White);
+		ssd1306_SetCursor(0,30);
+		ssd1306_WriteString("koef_Pres:",Font_7x10,White);
+		if (choise==1)
+			{
+				sprintf(R,"%01d%c%02d",koef_Pres/100,'.',koef_Pres%100);
+				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);
+			}else{
+				sprintf(R,"%01d%c%02d",koef_Pres/100,'.',koef_Pres%100);
+				ssd1306_WriteString(R,Font_7x10,White);
+			}
+		ssd1306_SetCursor(0,41);
+		ssd1306_WriteString("P:",Font_7x10,White);
+		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+                ssd1306_WriteString(R,Font_7x10,White);
+		switch (choise)
+			{
+			  case 0:
+				koef_U=EncoderVal;
+				break;
+			  case 1:
+				koef_Pres=EncoderVal;
+				break;
+			}
+			
+          if (button>1000) 
+          {
+            flag=0;
+            choise=0;
+            if (worktimeclear){worktime=0;worktimeclear=0;}
+            NVIC_DisableIRQ(EXTI0_IRQn);
+            NVIC_DisableIRQ(EXTI1_IRQn);
+            NVIC_DisableIRQ(EXTI9_5_IRQn);
+            Flash_save();	
+            NVIC_EnableIRQ(EXTI0_IRQn);
+            NVIC_EnableIRQ(EXTI1_IRQn);
+            NVIC_EnableIRQ(EXTI9_5_IRQn);            
+            error=0;  
+          } else if (button>100)
+          {
+            choise=(choise>=1)?0:choise+1;
+              switch (choise)
+              {
+                case 0:
+                  __HAL_TIM_SET_COUNTER(&htim3,koef_U);
+                  break;
+                case 1:
+                  __HAL_TIM_SET_COUNTER(&htim3,koef_Pres);
+                  break;                
+              }
+          } 
+
+        break;
       
     }
    

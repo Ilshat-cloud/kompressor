@@ -122,6 +122,7 @@ void Error_Handler(void);
     448,436,425,414,403,393,383,373,
     364,355,346,337,328,320,312,304,
     297,289,282,275,269,262};               //-5 to 110
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
