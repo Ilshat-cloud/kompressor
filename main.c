@@ -871,21 +871,31 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,P_old=0,P_time_old,furst_run,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
+  uint8_t secound_old=99,P_old=0,P_time_old,furst_run=0,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
   uint16_t start_time=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
   HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
-  NVIC_EnableIRQ(EXTI0_IRQn);
-  NVIC_EnableIRQ(EXTI1_IRQn);
-  NVIC_EnableIRQ(EXTI9_5_IRQn);
   osDelay(100);
   /* Infinite loop */
   
   for(;;)
   {
+    //-------------phases and delay------------//
+    phase_a_work=0;
+    phase_b_work=0;
+    phase_c_work=0;
+    taskENTER_CRITICAL();  
+    NVIC_EnableIRQ(EXTI0_IRQn);
+    NVIC_EnableIRQ(EXTI1_IRQn);
+    NVIC_EnableIRQ(EXTI9_5_IRQn); 
+    osDelay(60);
+    NVIC_DisableIRQ(EXTI0_IRQn);
+    NVIC_DisableIRQ(EXTI1_IRQn);
+    NVIC_DisableIRQ(EXTI9_5_IRQn);
+    taskEXIT_CRITICAL();
     //-------------ADC IDWG Encoder------------//
     HAL_IWDG_Refresh(&hiwdg);
     HAL_RTC_GetTime(&hrtc, &CurTime, RTC_FORMAT_BIN);
@@ -1056,13 +1066,8 @@ void main_func(void *argument)
         HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
-        NVIC_DisableIRQ(EXTI0_IRQn);
-        NVIC_DisableIRQ(EXTI1_IRQn);
-        NVIC_DisableIRQ(EXTI9_5_IRQn);
         Flash_save();	
-        NVIC_EnableIRQ(EXTI0_IRQn);
-        NVIC_EnableIRQ(EXTI1_IRQn);
-        NVIC_EnableIRQ(EXTI9_5_IRQn); 
+
 
       }
     
@@ -1090,9 +1095,6 @@ void main_func(void *argument)
      }
     //=======================================================================================//
     strobe=0;
-    phase_a_work=0;
-    phase_b_work=0;
-    phase_c_work=0;    
     osDelay(100);
   }
   /* USER CODE END 5 */
@@ -1815,13 +1817,7 @@ void Screen(void *argument)
             flag=0;
             choise=0;
             if (worktimeclear){worktime=0;worktimeclear=0;}
-            NVIC_DisableIRQ(EXTI0_IRQn);
-            NVIC_DisableIRQ(EXTI1_IRQn);
-            NVIC_DisableIRQ(EXTI9_5_IRQn);
-            Flash_save();	
-            NVIC_EnableIRQ(EXTI0_IRQn);
-            NVIC_EnableIRQ(EXTI1_IRQn);
-            NVIC_EnableIRQ(EXTI9_5_IRQn);            
+            Flash_save();	           
             error=0;  
           } else if (button>100)
           {
@@ -1841,7 +1837,6 @@ void Screen(void *argument)
       
     }
    
-    
     ssd1306_UpdateScreen();
     ssd1306_Fill(Black); 
     button=0;

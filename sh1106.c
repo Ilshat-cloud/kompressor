@@ -112,6 +112,7 @@ void ssd1306_Fill(SSD1306_COLOR color)
 
 void ssd1306_UpdateScreen(void) 
 {
+ 
   uint8_t i;
         for (i=0; i<8; i++)
         {
@@ -125,6 +126,8 @@ void ssd1306_UpdateScreen(void)
            }
           
         }
+ 
+        
 }
 
 
