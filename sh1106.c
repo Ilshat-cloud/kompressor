@@ -6,10 +6,10 @@ static uint8_t SSD1306_Buffer[SSD1306_WIDTH * SSD1306_HEIGHT / 8];
 /* Private variable */
 static SSD1306_t SSD1306;
 
-static void ssd1306_WriteCommand(uint8_t command)
-{
-  HAL_I2C_Mem_Write(&hi2c1, SSD1306_I2C_ADDR, 0x00,1,&command,1,5);
-}
+static void ssd1306_WriteCommand(uint8_t command);
+static void ssd1306_WriteData(uint8_t* data, uint16_t size);
+
+
 
 
 uint8_t dota[128]={
@@ -48,7 +48,13 @@ uint8_t dota[128]={
 
 uint8_t ssd1306_Init(void) {
         
-  
+	if (HAL_I2C_IsDeviceReady(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 3, 100) != HAL_OK)
+	{
+		SSD1306.Initialized = 0;
+		/* Return false */
+		return 0;
+	}
+        
         osDelay(100);
 	
 	/* Init LCD */
@@ -113,17 +119,21 @@ void ssd1306_Fill(SSD1306_COLOR color)
 void ssd1306_UpdateScreen(void) 
 {
  
-  uint8_t i;
+        uint8_t i;
+        if (HAL_I2C_IsDeviceReady(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 3, 100) != HAL_OK)
+	{
+		SSD1306.Initialized = 0;
+		/* Return false */
+		return ;
+	}
+
         for (i=0; i<8; i++)
         {
           ssd1306_WriteCommand(0xB0+i);
-          ssd1306_WriteCommand(0x02);  //0X00
-          ssd1306_WriteCommand(0x10);  //0X10
+          ssd1306_WriteCommand(SETLOWCOLUMN);
+          ssd1306_WriteCommand(SETHIGHCOLUMN);
           
-          if (HAL_I2C_Mem_Write(&hi2c1, SSD1306_I2C_ADDR, 0x40,1,&SSD1306_Buffer[SSD1306_WIDTH *i],SSD1306_WIDTH,5)!=HAL_OK)
-           {
-              ssd1306_Init();
-           }
+          ssd1306_WriteData(&SSD1306_Buffer[SSD1306_WIDTH * i], SSD1306_WIDTH);
           
         }
  
@@ -169,6 +179,38 @@ void ssd1306_Draw_dot_colum_line(uint8_t x, uint8_t y) {
 	
 }
 
+
+
+
+
+static void ssd1306_WriteCommand(uint8_t command)
+{
+#ifdef USE_DMA
+	while(HAL_I2C_GetState(&SSD1306_I2C_PORT) != HAL_I2C_STATE_READY);
+	HAL_I2C_Mem_Write_DMA(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 0x00, 1, &command, 1);
+#else
+	HAL_I2C_Mem_Write(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 0x00, 1, &command, 1, 10);
+#endif
+}
+
+static void ssd1306_WriteData(uint8_t* data, uint16_t size)
+{
+#ifdef USE_DMA
+	while(HAL_I2C_GetState(&SSD1306_I2C_PORT) != HAL_I2C_STATE_READY);
+	HAL_I2C_Mem_Write_DMA(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 0x40, 1, data, size);
+#else
+	HAL_I2C_Mem_Write(&SSD1306_I2C_PORT, SSD1306_I2C_ADDR, 0x40, 1, data, size, 100);
+#endif
+}
+#ifdef USE_DMA
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+	if(hi2c->Instance == SSD1306_I2C_PORT.Instance)
+	{
+		//TODO:
+	}
+}
+#endif
 
 ///////////***********************////////////////////
 

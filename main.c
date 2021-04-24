@@ -119,9 +119,10 @@ void Flash_save(void);
 uint16_t EncoderVal,power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
 int16_t Flow_current=0,Flow_nominal=0;
 uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI,
-current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0,koef_Pres=0,koef_U=0;
+current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0,koef_Pres=0,koef_U=0, save=0;
 int8_t T1,T2;
 RTC_TimeTypeDef CurTime = {0};
+RTC_DateTypeDef CurDate={0};
 uint32_t button=0,worktime,flash_ret;
 FLASH_EraseInitTypeDef Erase;
 //========================================//
@@ -871,7 +872,7 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,P_old=0,P_time_old,furst_run=0,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t;
+  uint8_t secound_old=99,P_old=0,P_time_old,furst_run=0,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t,day_old;
   uint16_t start_time=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
@@ -879,26 +880,39 @@ void main_func(void *argument)
   HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
   osDelay(100);
+  HAL_RTC_GetDate(&hrtc, &CurDate, RTC_FORMAT_BIN);
+  day_old=CurDate.Date;
   /* Infinite loop */
   
   for(;;)
   {
     //-------------phases and delay------------//
-    phase_a_work=0;
-    phase_b_work=0;
-    phase_c_work=0;
-    taskENTER_CRITICAL();  
+    if (phase_control!=0){
     NVIC_EnableIRQ(EXTI0_IRQn);
     NVIC_EnableIRQ(EXTI1_IRQn);
     NVIC_EnableIRQ(EXTI9_5_IRQn); 
-    osDelay(60);
+    phase_a_work=0;
+    phase_b_work=0;
+    phase_c_work=0;
+    osDelay(42);
+    NVIC_DisableIRQ(EXTI0_IRQn);
+    NVIC_DisableIRQ(EXTI1_IRQn);
+    NVIC_DisableIRQ(EXTI9_5_IRQn);}
+    else{
+    phase_a_work=0;
+    phase_b_work=0;
+    phase_c_work=0;
     NVIC_DisableIRQ(EXTI0_IRQn);
     NVIC_DisableIRQ(EXTI1_IRQn);
     NVIC_DisableIRQ(EXTI9_5_IRQn);
-    taskEXIT_CRITICAL();
+    }
+
     //-------------ADC IDWG Encoder------------//
     HAL_IWDG_Refresh(&hiwdg);
     HAL_RTC_GetTime(&hrtc, &CurTime, RTC_FORMAT_BIN);
+    HAL_RTC_GetDate(&hrtc, &CurDate, RTC_FORMAT_BIN);
+    HAL_ADC_Stop(&hadc1);
+    HAL_ADC_Stop_DMA(&hadc1);
     HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
     osDelay(10);
@@ -962,18 +976,18 @@ void main_func(void *argument)
           if (current_c>((current_a+current_b+Current_diference)/2)){error=14;} 
           if (current_c<((current_a+current_b-Current_diference)/2)){error=15;} 
         }
-      }else if ((phase_a_work!=0)&&(phase_control==1)||(phase_control==2))
+      }else if ((phase_a_work==1)&&((phase_control==1)||(phase_control==2)))
       {
-        if (phase_b_work)
-        {
-          error=20;  
-        }
-        if (phase_c_work)
+        if (!phase_b_work)
         {
           error=19;  
         }
+        if (!phase_c_work)
+        {
+          error=20;  
+        }
         
-      }else if ((phase_a_work==0)&&(phase_control==3))
+      }else if ((phase_a_work==0)&&(phase_control!=0))
       { 
         error=18;
       }else if (phase_control==0||phase_control==3)
@@ -1002,7 +1016,11 @@ void main_func(void *argument)
     if ((phase_control==1)&&(Time_b>Time_c)){error=1;}
     if ((phase_control==2)&&(Time_b<Time_c)){error=1;}
     //==================================================//
-        
+    if (day_old!=CurDate.Date)
+    {
+      save=1;
+      day_old=CurDate.Date;
+    }    
     //----------------------------startuem----------------------------------//
     if ((!error)&&(P<P_min))
       {
@@ -1066,11 +1084,12 @@ void main_func(void *argument)
         HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
-        Flash_save();	
+        
 
 
       }
     
+      
 
     //==================================================//
     if (strobe)
@@ -1817,7 +1836,7 @@ void Screen(void *argument)
             flag=0;
             choise=0;
             if (worktimeclear){worktime=0;worktimeclear=0;}
-            Flash_save();	           
+            save=1;	           
             error=0;  
           } else if (button>100)
           {
@@ -1836,10 +1855,16 @@ void Screen(void *argument)
         break;
       
     }
-   
+    
     ssd1306_UpdateScreen();
     ssd1306_Fill(Black); 
+    
     button=0;
+    if (save==1)
+    {
+      Flash_save();
+      save=0;
+    }
     osDelay(200);
   }
   /* USER CODE END Screen */
