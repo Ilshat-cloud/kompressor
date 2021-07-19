@@ -34,6 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -116,9 +117,9 @@ void Flash_save(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 //--------my global variables----------//
-uint16_t EncoderVal,power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
-int16_t Flow_current=0,Flow_nominal=0;
-uint8_t P=0,error=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI,
+uint16_t EncoderVal, EncoderValOld, power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
+int16_t Flow_current=0,Flow_nominal=0, P_display, P_max_display,P_min_display,P_HH_display,P_LL_display,total_flow_lit_min=0,counter_flow_lit_min=0;
+uint8_t P=0,error=0, error_first=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI, dreamenable=0,dream=0,
 current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0,koef_Pres=0,koef_U=0, save=0;
 int8_t T1,T2;
 RTC_TimeTypeDef CurTime = {0};
@@ -872,16 +873,45 @@ void main_func(void *argument)
   
   
   volatile uint16_t dma[7];
-  uint8_t secound_old=99,P_old=0,P_time_old,furst_run=0,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t,day_old;
-  uint16_t start_time=0;
+  volatile uint8_t P_array[7];
+  uint8_t secound_old=99,minute_old=0,P_old=0,P_time_old,furst_run=0,P_ini=1,time_10s=0,P_old_10s=0,strobe=0,NTC_t,day_old,sim_P_dec=2,run=0;
+  uint16_t start_time=0,secound_increment=0,secound_inc_old=0;
   HAL_TIM_Encoder_Start(&htim3,TIM_CHANNEL_ALL);
   HAL_TIM_IC_Start_DMA(&htim4,TIM_CHANNEL_2,&button,1);
   HAL_TIM_Base_Start(&htim2);
   HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
-  osDelay(100);
+  HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_RESET);
+  osDelay(500);
+  HAL_ADC_Stop(&hadc1);
+  HAL_ADC_Stop_DMA(&hadc1);
+  HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
+  osDelay(50);
+  //-------------------simulation init-------------------------------//
+  if (simulation==1)
+  {
+   dma[0]=0;  
+   dma[1]=0;  
+   dma[2]=0;     
+   dma[3]=0;  
+   dma[4]=0;  
+   dma[5]=0;   
+   dma[6]=0;
+  }
+  //-----------------------------------------------------------------//
+  P=dma[3]/32; //128==12.8at==3v
+  P_array[0]=P;
+  P_array[1]=P;
+  P_array[2]=P;
+  P_array[3]=P;
+  P_array[4]=P;
+  P_array[5]=P;
+  P_array[6]=P;
+  P=P*koef_Pres/100;
   HAL_RTC_GetDate(&hrtc, &CurDate, RTC_FORMAT_BIN);
   day_old=CurDate.Date;
+  
   /* Infinite loop */
   
   for(;;)
@@ -907,19 +937,43 @@ void main_func(void *argument)
     NVIC_DisableIRQ(EXTI9_5_IRQn);
     }
 
-    //-------------ADC IDWG Encoder------------//
+    //-------------ADC IDWG Encoder screendream------------//
     HAL_IWDG_Refresh(&hiwdg);
     HAL_RTC_GetTime(&hrtc, &CurTime, RTC_FORMAT_BIN);
     HAL_RTC_GetDate(&hrtc, &CurDate, RTC_FORMAT_BIN);
     HAL_ADC_Stop(&hadc1);
     HAL_ADC_Stop_DMA(&hadc1);
-    HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
+    
+    //----------------------simulation------------------------//
+    if (simulation==1)
+    {
+        //dma[0]=(4096>(dma[0]+sim_v_inc))?(dma[0]+sim_v_inc):dma[0];  //voltage  increse
+        // dma[1]=(4096>(dma[1]+sim_t1_inc))?(dma[1]+sim_t1_inc):dma[1];  //t1   increse
+        //dma[2]=(4096>(dma[2]+sim_t2_inc))?(dma[2]+sim_t2_inc):dma[2];  //t2  increse
+         dma[3]=(dma[3]>sim_P_dec)?(dma[3]-sim_P_dec):dma[3];  //pressure decrese
+        // dma[4]=0;  //current a
+        // dma[5]=0;  //current b
+        // dma[6]=0;  //current c    
+    }else{
+      HAL_ADC_Start_DMA(&hadc1,(uint32_t*)&dma,7);
+    }
+    
+    
     EncoderVal=__HAL_TIM_GET_COUNTER(&htim3);
+    if (EncoderVal!=EncoderValOld){
+      dream=0;
+      secound_increment=secound_inc_old;}
+    EncoderValOld=EncoderVal;
     osDelay(10);
     voltage=dma[0]*koef_U/(1131.37);       //real_voltage 511v==4095==3v  8*sqrt(2)
     voltage_LL&=0x1FF;
     voltage_HH&=0x1FF;
-    P=(P+dma[3]/32)/2;                  //128==12.8at==3v
+    for(iter=0;iter<6;iter++)
+      {
+       P_array[iter]= P_array[iter+1];  
+      }
+     P_array[6]=dma[3]/32;
+    P=(P_array[6]+P_array[5]+P_array[4]+P_array[3]+P_array[2]+P_array[1]+P_array[0])/7;                  //128==12.8at==3v
     P=P*koef_Pres/100;
     current_a=(current_a+dma[4])/2;
     current_b=(current_b+dma[5])/2;
@@ -961,11 +1015,23 @@ void main_func(void *argument)
     {
       strobe=1;
       secound_old=CurTime.Seconds;
+      secound_increment++;
     }  
     //=========================================// 
     
+    
+    //----------------dream-----------------//
+    if (!dreamenable){secound_inc_old=secound_increment;}
+    if (secound_increment>secound_inc_old+dreamtime)
+    {
+      dream=1;
+    }
+    secound_inc_old=(secound_inc_old>secound_increment)?secound_increment:secound_inc_old;
+    
+    //=========================================// 
+    
       //-------------------calculations power, phase quantity,difference between phase------------------------//
-      if(phase_a_work&&phase_b_work&&phase_c_work)
+    if(phase_a_work&&phase_b_work&&phase_c_work)
       {
         power=3*voltage*cosFI*(current_a+current_b+current_c)/(3*200*100);   //current*1000/5=current/200 A cosFI(0,5..1)=0.5==50, 1==100
         if (Current_diference>0){
@@ -976,7 +1042,7 @@ void main_func(void *argument)
           if (current_c>((current_a+current_b+Current_diference)/2)){error=14;} 
           if (current_c<((current_a+current_b-Current_diference)/2)){error=15;} 
         }
-      }else if ((phase_a_work==1)&&((phase_control==1)||(phase_control==2)))
+    }else if ((phase_a_work==1)&&((phase_control==1)||(phase_control==2)))
       {
         if (!phase_b_work)
         {
@@ -987,10 +1053,10 @@ void main_func(void *argument)
           error=20;  
         }
         
-      }else if ((phase_a_work==0)&&(phase_control!=0))
+    }else if ((phase_a_work==0)&&(phase_control!=0))
       { 
         error=18;
-      }else if (phase_control==0||phase_control==3)
+    }else if (phase_control==0||phase_control==3)
       { 
         power=voltage*cosFI*(current_a)/(200*100);
       }
@@ -1029,66 +1095,80 @@ void main_func(void *argument)
           {
             furst_run=1;
           }
+        //----------------------------------------------------------------------//
         
+        //----------------------------run----------------------------------/
         HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_SET);
-        if (start_time>0){
-          HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_SET);
-        }
-        if (strobe)
-          {
-            start_time++;
-            worktime++;
-            time_10s++;  
-            Time_Pmin_Pmax=start_time;
-            if (start_time>5)
-              {
-                if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
-                if (P<(P_old+3)&&P>(P_old-3)){
-                  P_time_old++;
-                  if ((P_time_old>dP_time)&&dP_time){error=16;}  //pressure not change
-                }else{
-                  P_time_old=0;
-                  P_old=P; 
-                }              
-              }
-           
-            
-          }
-        //=======================================================================================//
-        
+        run=1;
+        //-------------------------------------------------------------------//
 
-        
-        
-        //----------------------------solenoid----------------------------------//
-        if (start_time<4)
-          {
-            P_ini=P;
-            P_old=P; 
-            HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
-          }else{
-            HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
-          }
-        //=======================================================================================//
       }
     else if((error)||(P>P_max))
       {
         if (furst_run){
            furst_run=0;
-           P_ini=(P_ini==0)?1:P_ini;
-           Flow_nominal=((P*Reciver_capacyty/P_ini)-Reciver_capacyty)*(start_time-3)/60;
+           start_time=(start_time>3)?start_time:4;
+           Flow_nominal=((P-P_ini)*Reciver_capacyty)*6/(start_time-3);
            Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
            Time_Pmin_Pmax_old=start_time;
           }
+        run=0;
         P_time_old=0;
         start_time=0;
         HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
-        
-
-
       }
     
+    
+    if (run)
+    {       
+        if (strobe)
+            {
+              if (start_time>0)
+              {
+                HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_SET);
+              }
+              //----------------------------solenoid----------------------------------//
+              if (start_time<4)
+              {
+                P_ini=P;
+                P_old=P; 
+                HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
+              }else{
+                HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
+              } 
+              //-----------------------------------------------------------------------//
+              start_time++;
+              worktime++;
+              time_10s++;  
+              Time_Pmin_Pmax=start_time;
+              if (start_time>5)
+                {
+                  if ((power_nom*40>power)&&power_nom){error=17;}  //wrong load
+                  if (P<(P_old+3)&&P>(P_old-3)){
+                    P_time_old++;
+                    if ((P_time_old>dP_time)&&dP_time){error=16;}  //pressure not change
+                  }else{
+                    P_time_old=0;
+                    P_old=P; 
+                  }              
+                }
+
+          }
+        //----------------------simulation------------------------//
+        if (simulation==1)
+        {
+            //dma[0]=(4096>(dma[0]+sim_v_inc))?(dma[0]+sim_v_inc):dma[0];  //voltage  increse
+            // dma[1]=(4096>(dma[1]+sim_t1_inc))?(dma[1]+sim_t1_inc):dma[1];  //t1   increse
+            //dma[2]=(4096>(dma[2]+sim_t2_inc))?(dma[2]+sim_t2_inc):dma[2];  //t2  increse
+             dma[3]=(4096>(dma[3]+sim_P_dec*6))?(dma[3]+sim_P_dec*6):dma[3];  //pressure decrese
+            // dma[4]=0;  //current a
+            // dma[5]=0;  //current b
+            // dma[6]=0;  //current c    
+        }        
+    
+    }
       
 
     //==================================================//
@@ -1105,15 +1185,30 @@ void main_func(void *argument)
     //----------------------------flow 6s----------------------------------//
     if ((CurTime.Seconds%6==5)&&(strobe))
      {
-       if (start_time>2){
+       if (start_time>0){
         Flow_current=(P-P_old_10s)*Reciver_capacyty-Flow_nominal;
        }else{
         Flow_current=(P-P_old_10s)*Reciver_capacyty;
        }
+       counter_flow_lit_min=counter_flow_lit_min+Flow_current;
        P_old_10s=P;
      }
     //=======================================================================================//
+    
+    //---------------------------minute strobe---------------------------------------------//
+    if (CurTime.Minutes!=minute_old)
+    {
+      total_flow_lit_min=counter_flow_lit_min/(-10);
+      counter_flow_lit_min=0;
+    
+    }
+    
+    //======================================================================================//
     strobe=0;
+    if ((error!=0)&&(error_first==0))
+    {
+      error_first=error;
+    }
     osDelay(100);
   }
   /* USER CODE END 5 */
@@ -1130,7 +1225,7 @@ void Screen(void *argument)
 {
   /* USER CODE BEGIN Screen */
   char R[16];
-  uint8_t choise=0,worktimeclear=0;
+  uint8_t choise=0,worktimeclear=0,alredydream=0;
    //----------Horse---------------
   ssd1306_Init();
   ssd1306_Fill(Black);
@@ -1148,7 +1243,7 @@ void Screen(void *argument)
   ssd1306_Fill(Black);
   //------------------------------------
   
-  osDelay(300);
+  osDelay(500);
   
   /* Infinite loop */
   for(;;)
@@ -1158,6 +1253,7 @@ void Screen(void *argument)
     {
     case 0:
         //------------------------------startyem--------------------------------//
+                dreamenable=1;
 		ssd1306_SetCursor(0,0);
 		ssd1306_WriteString("Flow nom:",Font_7x10,White);
 		sprintf(R,"%04d",Flow_nominal);
@@ -1210,17 +1306,29 @@ void Screen(void *argument)
           {
             flag=3;
             __HAL_TIM_SET_COUNTER(&htim3,P_max);
+            dream=0;
           } else if (button>100)
           {
             flag=1;
+            dream=0;
           }
         break;
     case 1:
         //------------------------------prodoljaem--------------------------------//
+                dreamenable=0;
+                P_display=P-10;
 		ssd1306_SetCursor(0,7);
 		ssd1306_WriteString("Pressure:",Font_7x10,White);
 		ssd1306_SetCursor(63,0);
-		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+                if (P==0){
+                  ssd1306_WriteString("-1.",Font_11x18,White);
+                  sprintf(R,"%01d",P);
+                }else if (P<10)
+                {
+                  ssd1306_WriteString("-0.",Font_11x18,White);
+                  sprintf(R,"%01d",(10-P));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_display/10,'.',P_display%10);}
 		ssd1306_WriteString(R,Font_11x18,White);
 		ssd1306_SetCursor(107,7);
 		ssd1306_WriteString("kg",Font_7x10,White);
@@ -1256,7 +1364,7 @@ void Screen(void *argument)
         break;
     case 2:
         //------------------------------do sih por--------------------------------//
-	
+	dreamenable=0;
         if (error!=0)
           {
             flag=5; 
@@ -1273,44 +1381,91 @@ void Screen(void *argument)
         break;    
     case 3:
         //------------------------------settings page1--------------------------------//
+        dreamenable=0;
         ssd1306_SetCursor(0,0);
+                P_max_display=P_max-10;
 		ssd1306_WriteString("Pmax:",Font_7x10,White);
-		sprintf(R,"%02d%c%01d",P_max/10,'.',P_max%10);
+                
+                if (P_max_display==-10){
+                  ssd1306_WriteString("-1.",Font_7x10,White);
+                  sprintf(R,"%01d",P_max);
+                }
+                else if (P_max_display<0)
+                {
+                  ssd1306_WriteString("-0.",Font_7x10,White);
+                  sprintf(R,"%01d",(10-P_max));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_max_display/10,'.',P_max_display%10);}
 		if (choise==0)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
 			}else{
 				ssd1306_WriteString(R,Font_7x10,White);
 			}		
-
 		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+                
 		ssd1306_WriteChar(0x80,Font_7x10,White);
 		ssd1306_SetCursor(0,10);
+                P_min_display=P_min-10;
 		ssd1306_WriteString("Pmin:",Font_7x10,White);
-		sprintf(R,"%02d%c%01d",P_min/10,'.',P_min%10);
+                if (P_min_display==-10){
+                  ssd1306_WriteString("-1.",Font_7x10,White);
+                  sprintf(R,"%01d",P_min);
+                }
+                else if (P_min_display<0)
+                {
+                  ssd1306_WriteString("-0.",Font_7x10,White);
+                  sprintf(R,"%01d",(10-P_min));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_min_display/10,'.',P_min_display%10);}
 		if (choise==1)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
 			}else{
 				ssd1306_WriteString(R,Font_7x10,White);
 			}	
+                
 		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+                
 		ssd1306_WriteChar(0x80,Font_7x10,White);
 		ssd1306_SetCursor(0,21);
+                P_LL_display=P_LL-10;
 		ssd1306_WriteString("P<LL:",Font_7x10,White);
-		sprintf(R,"%02d%c%01d",P_LL/10,'.',P_LL%10);
+		if (P_LL_display==-10){
+                  ssd1306_WriteString("-1.",Font_7x10,White);
+                  sprintf(R,"%01d",P_LL);
+                }
+                else if (P_LL_display<0)
+                {
+                  ssd1306_WriteString("-0.",Font_7x10,White);
+                  sprintf(R,"%01d",(10-P_LL));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_LL_display/10,'.',P_LL_display%10);
+                }
 		if (choise==2)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
 			}else{
 				ssd1306_WriteString(R,Font_7x10,White);
-			}	
-		ssd1306_WriteString(" kg/cm",Font_7x10,White);
+			}			
+                ssd1306_WriteString(" kg/cm",Font_7x10,White);
+                
 		ssd1306_WriteChar(0x80,Font_7x10,White);
 		ssd1306_SetCursor(0,32);
-		ssd1306_WriteString("P>HH:",Font_7x10,White);
-		sprintf(R,"%02d%c%01d",P_HH/10,'.',P_HH%10);
-		if (choise==3)
+		P_HH_display=P_HH-10;
+		ssd1306_WriteString("P<HH:",Font_7x10,White);
+		if (P_HH_display==-10){
+                  ssd1306_WriteString("-1.",Font_7x10,White);
+                  sprintf(R,"%01d",P_HH);
+                }
+                else if (P_HH_display<0)
+                {
+                  ssd1306_WriteString("-0.",Font_7x10,White);
+                  sprintf(R,"%01d",(10-P_HH));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_HH_display/10,'.',P_HH_display%10);
+                }
+                if (choise==3)
 			{
 				ssd1306_WriteString(R,Font_7x10,CurTime.Seconds%2);		
 			}else{
@@ -1407,7 +1562,8 @@ void Screen(void *argument)
           }       
         break;    
     case 4:
-        //------------------------------settings page2--------------------------------//        
+        //------------------------------settings page2--------------------------------// 
+                dreamenable=0;
 		ssd1306_SetCursor(0,0);
 		ssd1306_WriteString("Phase",Font_7x10,White);
 		if (choise==0)
@@ -1633,16 +1789,27 @@ void Screen(void *argument)
         break;
     case 5:
         //------------------------------vse its over--------------------------------//
+                dreamenable=1;
 		ssd1306_SetCursor(0,7);
 		ssd1306_WriteString("Pressure:",Font_7x10,White);
 		ssd1306_SetCursor(63,0);
-		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+                P_display=P-10;
+                if (P==0){
+                  ssd1306_WriteString("-1.",Font_11x18,White);
+                  sprintf(R,"%01d",P);
+                }
+                else if (P<10)
+                {
+                  ssd1306_WriteString("-0.",Font_11x18,White);
+                  sprintf(R,"%01d",(10-P));
+                }else{
+                sprintf(R,"%02d%c%01d",P_display/10,'.',P_display%10);}
 		ssd1306_WriteString(R,Font_11x18,White);
 		ssd1306_SetCursor(107,7);
 		ssd1306_WriteString("kg",Font_7x10,White);
 		ssd1306_SetCursor(35,18);
 		ssd1306_WriteString("Error!!!",Font_7x10,White);
-		switch(error)
+		switch(error_first)
 		{
 			case 1:
 			ssd1306_SetCursor(0,28);
@@ -1782,15 +1949,19 @@ void Screen(void *argument)
             flag=3;
             choise=0;
             __HAL_TIM_SET_COUNTER(&htim3,P_max);
+             dream=0;
           } else if (button>100)
           {
             error=0;  
             flag=0;
             choise=0;
+            error_first=0;
+             dream=0;
           }  
       break; 
       case 6:
-        //------------------------------settings page3--------------------------------//        
+        //------------------------------settings page3--------------------------------//      
+                dreamenable=0;
 		ssd1306_SetCursor(0,0);
 
 
@@ -1818,8 +1989,19 @@ void Screen(void *argument)
 				ssd1306_WriteString(R,Font_7x10,White);
 			}
 		ssd1306_SetCursor(0,41);
+                P_display=P-10;
 		ssd1306_WriteString("P:",Font_7x10,White);
-		sprintf(R,"%02d%c%01d",P/10,'.',P%10);
+                if (P==0){
+                  ssd1306_WriteString("-1.",Font_7x10,White);
+                  sprintf(R,"%01d",P);
+                }
+                else if (P<10)
+                {
+                  ssd1306_WriteString("-0.",Font_7x10,White);
+                  sprintf(R,"%01d",(10-P));
+                }else{
+                  sprintf(R,"%02d%c%01d",P_display/10,'.',P_display%10);}
+                
                 ssd1306_WriteString(R,Font_7x10,White);
 		switch (choise)
 			{
@@ -1838,6 +2020,7 @@ void Screen(void *argument)
             if (worktimeclear){worktime=0;worktimeclear=0;}
             save=1;	           
             error=0;  
+            error_first=0;
           } else if (button>100)
           {
             choise=(choise>=1)?0:choise+1;
@@ -1855,9 +2038,16 @@ void Screen(void *argument)
         break;
       
     }
-    
-    ssd1306_UpdateScreen();
-    ssd1306_Fill(Black); 
+    if (dreamenable&&dream){                                                                           //dream
+      if (!alredydream){
+      ssd1306_Fill(Black); 
+      ssd1306_UpdateScreen();}
+      alredydream=1;
+    }else{
+      ssd1306_UpdateScreen();
+      ssd1306_Fill(Black); 
+      alredydream=0;
+    }
     
     button=0;
     if (save==1)

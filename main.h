@@ -100,6 +100,8 @@ void Error_Handler(void);
 #define TIM4_Ch1_BTN_GPIO_Port GPIOB
 #define START_Pin GPIO_PIN_7
 #define START_GPIO_Port GPIOB
+#define dreamtime 30
+#define simulation  0
 /* USER CODE BEGIN Private defines */
   static const int   User_Page_Adress[]={
   0x0800FC00,0x0800FC04,0x0800FC08,0x0800FC0C,0x0800FC10,0x0800FC14,0x0800FC18,0x0800FC1C,
