@@ -1134,6 +1134,7 @@ void main_func(void *argument)
               {
                 P_ini=P;
                 P_old=P; 
+                P_time_old=0;
                 HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_SET);
               }else{
                 HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
