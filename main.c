@@ -129,7 +129,7 @@ void Flash_save(void);
 //--------my global variables----------//
 uint16_t EncoderVal, EncoderValOld, power=0,voltage,voltage_LL=0,voltage_HH=0,Time_b=0,Time_c=0,Reciver_capacyty=0,current_a,current_b,current_c,Time_Pmin_Pmax_old,Time_Pmin_Pmax=0;
 int16_t Flow_current=0,Flow_nominal=0, P_display, P_max_display,P_min_display,P_HH_display,P_LL_display,total_flow_lit_min=0,counter_flow_lit_min=0;
-uint8_t P=0,error=0, error_first=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI, dreamenable=0,dream=0,
+uint8_t P=0,error=0, error_first=0,P_max,P_min,P_HH,P_LL,Current_diference,T1_max,T2_max,P_ini=0,cosFI, dreamenable=0,dream=0, alarm_display=0,
 current=0,phase_control,phase_a_work=0,phase_b_work=0,phase_c_work=0,short_circut_current,dP_time,power_nom,dP_error,flag=0,iter=0,koef_Pres=0,koef_U=0, save=0;
 int8_t T1,T2;
 RTC_TimeTypeDef CurTime = {0};
@@ -1176,10 +1176,14 @@ void main_func(void *argument)
            Flow_nominal=((Flow_nominal<9999)&&(Flow_nominal>0))?Flow_nominal:0;
            Time_Pmin_Pmax_old=start_time;
           }
+        if (run)
+        {
+          HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+        }
         run=0;
         P_time_old=0;
         start_time=0;
-        HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+        
         HAL_GPIO_WritePin(START_GPIO_Port,START_Pin, GPIO_PIN_RESET);
         HAL_GPIO_WritePin(Start_solenoid_GPIO_Port,Start_solenoid_Pin, GPIO_PIN_RESET);
       }
@@ -1241,11 +1245,39 @@ void main_func(void *argument)
         {
             if ((P_old_10s>P)&&(dP_error)&&(P_old_10s-P)>dP_error){error=4;}  //depressurization
             if (error)
+              {
+                HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+                if (alarm_display>5)
+                  {
+                    if (alarm_display%2)
+                      {
+                        if(0x01&(error>>((alarm_display-7)/2)))
+                          {
+                            HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_SET);
+                            
+                          }else{
+                            HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_SET);
+                          }  
+                      }else{
+                        HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_RESET);
+                        HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+                      }
+                  }else{
+                    HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_SET);
+                    HAL_GPIO_WritePin(On_LED_GPIO_Port,On_LED_Pin, GPIO_PIN_RESET);
+                  }
+                alarm_display++;
+                alarm_display=(alarm_display>16)?0:alarm_display;
+              }else{
+                  
+                  HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_RESET);
+              }
+            /*
                   {
                     HAL_GPIO_TogglePin(Alarm_GPIO_Port,Alarm_Pin);								
                   }else{
                     HAL_GPIO_WritePin(Alarm_GPIO_Port,Alarm_Pin, GPIO_PIN_RESET);
-                  }
+                  }*/
         }    
     //----------------------------flow 6s----------------------------------//
     if ((CurTime.Seconds%6==5)&&(strobe))
