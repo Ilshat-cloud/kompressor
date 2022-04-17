@@ -29,10 +29,16 @@
 //#include "mqtt_interface.h"
 //#include "MQTTClient.h"
 
-//#include "socket.c"
 
-//#define TCP_SOCKET     0
-//#define PORT_TCPS       5000
+//#include "w5500.h"
+//#include "wizchip_conf.h"
+
+
+
+//#include "socket.c"
+//#define HTTP_SOCKET     0
+//#define TCP_SOCKET       0
+//#define PORT_TCPS		    5000
 //#define DATA_BUF_SIZE   2048
 //uint8_t gDATABUF[DATA_BUF_SIZE];
 /* USER CODE END Includes */
@@ -137,15 +143,20 @@ RTC_DateTypeDef CurDate={0};
 uint32_t button=0,worktime,flash_ret;
 FLASH_EraseInitTypeDef Erase;
 //========================================//
-/*
+
 //-----------------------------------------------------------------------------------------temp!!!!!---------------------------------------------------------------//
+/*
 wiz_NetInfo gWIZNETINFO = { .mac = {0x00, 0x08, 0xdc, 0xab, 0xcd, 0xef},
-                            .ip = {192, 168, 0, 2},
+                            .ip = {192, 168, 0, 3},
                             .sn = {255, 255, 255, 0},
                             .gw = {192, 168, 0, 1},
                             .dns = {0, 0, 0, 0},
                             .dhcp = NETINFO_STATIC };
+  uint8_t targetIP[4] = {192, 168, 0, 1};   //brocker IP adress
 
+  
+  
+  
 void W5500_Select(void)
 {
     HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_RESET);
@@ -158,12 +169,12 @@ void W5500_Unselect(void)
 
 void W5500_ReadBuff(uint8_t* buff, uint16_t len) 
 {
-    HAL_SPI_Receive(&hspi2, buff, len, HAL_MAX_DELAY);
+    HAL_SPI_Receive(&hspi2, buff, len, 1000);
 }
 
 void W5500_WriteBuff(uint8_t* buff, uint16_t len) 
 {
-    HAL_SPI_Transmit(&hspi2, buff, len, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(&hspi2, buff, len, 1000);
 }
 
 uint8_t W5500_ReadByte(void) 
@@ -178,16 +189,30 @@ void W5500_WriteByte(uint8_t byte)
     W5500_WriteBuff(&byte, sizeof(byte));
 }
 
+struct opts_struct
+{
+	char* clientid;
+	int nodelimiter;
+	char* delimiter;
+	enum QoS qos;
+	char* username;
+	char* password;
+	char* host;
+	int port;
+	int showtopics;
+} opts ={ (char*)"stdout-subscriber", 0, (char*)"\n", QOS0, NULL, NULL, targetIP, 1883, 0 };
+
+
+// @brief messageArrived callback function
 void messageArrived(MessageData* md)
 {
-  MQTTMessage* message = md->message;
-  for (uint8_t i = 0; i < md->topicName->lenstring.len; i++)
-  putchar(*(md->topicName->lenstring.data + i));
+	MQTTMessage* message = md->message;
 
 }
+*/
 //-----------------------------------------------------------------------------------------!---------------------------------------------------------------//
 
-*/
+
 
 
 
@@ -291,7 +316,7 @@ int main(void)
   Screen_taskHandle = osThreadNew(Screen, NULL, &Screen_task_attributes);
 
   /* creation of MQTT_task */
-  MQTT_taskHandle = osThreadNew(MQTT, NULL, &MQTT_task_attributes);
+ // MQTT_taskHandle = osThreadNew(MQTT, NULL, &MQTT_task_attributes);
 
   /* creation of MonitorTask */
   MonitorTaskHandle = osThreadNew(monitor, NULL, &MonitorTask_attributes);
@@ -598,7 +623,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -844,7 +869,7 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pin = SPI2_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(SPI2_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : W5500_RST_Pin Alarm_Pin */
@@ -2167,13 +2192,20 @@ void Screen(void *argument)
 void MQTT(void *argument)
 {
   /* USER CODE BEGIN MQTT */
-  /*
+  
   HAL_GPIO_WritePin(W5500_RST_GPIO_Port, W5500_RST_Pin, GPIO_PIN_RESET);
   osDelay(1);
   HAL_GPIO_WritePin(W5500_RST_GPIO_Port, W5500_RST_Pin, GPIO_PIN_SET);
   osDelay(1000);
+  /*
   uint8_t buf[100];
   uint32_t rc,mes_id;
+  
+  
+  uint8_t stat;
+  uint8_t reqnr;
+  uint8_t rIP[4];
+  char Message[128];
   
   reg_wizchip_cs_cbfunc(W5500_Select, W5500_Unselect);
   reg_wizchip_spi_cbfunc(W5500_ReadByte, W5500_WriteByte);
@@ -2184,50 +2216,69 @@ void MQTT(void *argument)
   wizchip_setnetinfo(&gWIZNETINFO);
   ctlnetwork(CN_SET_NETINFO, (void*) &gWIZNETINFO);
   osDelay(1000);
-   
-  Network n;
-  MQTTClient c;
-  n.my_socket = 0;
-  uint8_t targetIP[4] = {192, 168, 0, 1};   //brocker IP adress
+   */
+ // Network n;
+ // MQTTClient c;
+ // n.my_socket = 0;
+
   
-  NewNetwork(&n, TCP_SOCKET);
-  ConnectNetwork(&n, targetIP, 1883);
-  MQTTClientInit(&c, &n, 1000, buf, 100, gDATABUF, DATA_BUF_SIZE);
+ // NewNetwork(&n,TCP_SOCKET);  //, TCP_SOCKET
+ // ConnectNetwork(&n, targetIP, 1883);
+//  MQTTClientInit(&c, &n, 1000, buf, 100, gDATABUF, DATA_BUF_SIZE);
 
 //connecting 
-  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-  data.willFlag = 0;
-  data.MQTTVersion = 3;//4;
-  data.clientID.cstring = (char*)"w5500-client";
-  data.username.cstring = "username";
-  data.password.cstring = "";
+//  MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+//  data.willFlag = 0;
+// data.MQTTVersion = 3;
+//  data.clientID.cstring = (char*)"w5500-client";
+//  data.username.cstring = "";
+//  data.password.cstring = "";
   
-  data.keepAliveInterval = 60;
-  data.cleansession = 1;
+//  data.keepAliveInterval = 60;
+//  data.cleansession = 1;
  
-  rc = MQTTConnect(&c, &data);
+//  rc = MQTTConnect(&c, &data);
   //subscribing
-  rc = MQTTSubscribe(&c, "ss/#", QOS0, messageArrived);
+//  rc = MQTTSubscribe(&c, "YS/#", QOS0, messageArrived);
   
   
-  */
+  
   
   
 
   /* Infinite loop */
   for(;;)
   {
+   /* stat = socket(HTTP_SOCKET, Sn_MR_TCP, 80, 0);
+    stat = listen(HTTP_SOCKET);
     
-      //  MQTTMessage pubMessage;
-      //  pubMessage.qos = QOS0;
-     //   pubMessage.id = mes_id++;
-     //   pubMessage.payloadlen = 12;
-     //   pubMessage.payload = "sasai_lalka";
-     //   MQTTPublish(&c, "/w5500_stm32_client", &pubMessage);
+    while(getSn_SR(HTTP_SOCKET) == SOCK_LISTEN)
+    {
+	osDelay(2);
+    }
+    stat = getSn_SR(HTTP_SOCKET);
+    
+    getsockopt(HTTP_SOCKET, SO_DESTIP, rIP);
+    sprintf(Message, "CH 232 - %d /n", reqnr);
+    send(0, (uint8_t*)Message, strlen(Message));
+    sprintf(Message, "error %d", error);
+    send(0, (uint8_t*)Message, strlen(Message));   
+    disconnect(HTTP_SOCKET);
+    close(HTTP_SOCKET);
+    reqnr++;
+    */
+    /*
+        MQTTMessage pubMessage;
+        pubMessage.qos = QOS0;
+        pubMessage.id = mes_id++;
+        pubMessage.payloadlen = 13;
+        pubMessage.payload = "sasai_lalka";
+        MQTTPublish(&c, "/w5500_stm32_client", &pubMessage);
 
-	osDelay(1000);
-	//MQTTYield(&c, 1000);
-    
+	
+	MQTTYield(&c, 1000);
+    */
+    osDelay(1000);
   }
   /* USER CODE END MQTT */
 }
@@ -2247,7 +2298,8 @@ void monitor(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    osDelay(5000);
+   // MilliTimer_Handler();
+    osDelay(10000);
     /*
     UBaseType_t task_count = uxTaskGetNumberOfTasks();
     uint32_t _total_runtime,zalupa,konya;
